@@ -726,7 +726,9 @@ mod tests {
         for raw in ["relative", "/tmp/a\nb", " /tmp/a"] {
             assert_eq!(project_path(raw, false), Err(GuiError::InvalidDirectory));
         }
-        let dotdot = root.join("..").join("a");
+        // Not from `root`: on Windows that is a canonical `\\?\` verbatim
+        // path, where `join("..")` collapses the `..` before it is tested.
+        let dotdot = std::env::temp_dir().join("..").join("a");
         assert_eq!(
             project_path(dotdot.to_str().unwrap(), false),
             Err(GuiError::UnrepresentableDirectory)
