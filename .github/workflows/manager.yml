@@ -30,7 +30,9 @@ env:
 
 jobs:
   manager:
-    name: macos-latest
+    # Named for the workflow, not the runner: next to Rust's `macos-latest`
+    # in a check rollup, a bare runner name reads as the same check.
+    name: Manager (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
