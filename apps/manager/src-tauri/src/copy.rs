@@ -34,8 +34,11 @@ pub enum Text<'a> {
     NoHome,
     StartFailed(&'a str),
     IconMissing,
-    /// Printed by the launcher before the CLI's exit status.
+    /// Printed by the launcher before the CLI's exit status. Only the macOS
+    /// launcher exists to print it.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     LauncherExited,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     LauncherPressReturn,
 }
 

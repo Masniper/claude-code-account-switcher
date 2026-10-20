@@ -15,7 +15,11 @@ use tauri::{AppHandle, Emitter, Manager};
 #[serde(rename_all = "snake_case")]
 pub enum AppError {
     CliMissing,
+    // Constructed only by the macOS launcher; elsewhere `open_terminal`
+    // fails earlier with `TerminalMacosOnly`.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     LauncherFailed,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     TerminalFailed,
     // Constructed only where there is no Terminal launcher.
     #[cfg_attr(target_os = "macos", allow(dead_code))]
