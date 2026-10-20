@@ -23,3 +23,4 @@ Other tools solving nearby problems, and how they differ (summarised from their 
 | Runtime | Rust binary (or a single zsh script) | Python (uv / pipx) | Rust | direnv |
 
 Short version: **cswap** if you want one active account plus automatic rotation around rate limits; **aisw** if you juggle several coding CLIs; the **direnv** recipe if you already run direnv and want nothing else installed. `claude-acc` is for keeping accounts *separated* — work, personal, client — with the binding living in the directory tree, and an audit trail of which identity is actually behind each config dir.
+
