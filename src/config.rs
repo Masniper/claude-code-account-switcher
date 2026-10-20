@@ -1,6 +1,6 @@
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Account names: ASCII letters, digits, hyphens, underscores. Rejects path
 /// separators, regex metacharacters, whitespace, and unicode — anything
@@ -112,7 +112,22 @@ impl AppConfig {
             .iter()
             .map(|(k, v)| format!("{}={}\n", k, v))
             .collect();
-        fs::write(self.config_path(), content)
+        replace_file(&self.config_path(), &content)
+    }
+
+    /// Run one read-modify-write of `config` or `links` under an exclusive
+    /// lock on `.config.lock`, so two processes saving at the same moment
+    /// cannot each drop the other's change. Advisory:
+    /// `claude-switch.sh` takes the same file with `zsystem flock`, whose
+    /// fcntl lock excludes this one on macOS.
+    fn locked<T>(&self, edit: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+        let lock = fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(self.base_dir.join(".config.lock"))?;
+        lock.lock()?;
+        edit()
     }
 
     /// The value of `key`, or `None` when it is absent or empty. Empty is
@@ -128,12 +143,14 @@ impl AppConfig {
     /// Set `key`, leaving every other setting in the file untouched. New keys
     /// are appended; existing ones are updated in place.
     pub fn set_setting(&self, key: &str, value: &str) -> io::Result<()> {
-        let mut settings = self.read_settings();
-        match settings.iter_mut().find(|(k, _)| k == key) {
-            Some(entry) => entry.1 = value.to_string(),
-            None => settings.push((key.to_string(), value.to_string())),
-        }
-        self.write_settings(&settings)
+        self.locked(|| {
+            let mut settings = self.read_settings();
+            match settings.iter_mut().find(|(k, _)| k == key) {
+                Some(entry) => entry.1 = value.to_string(),
+                None => settings.push((key.to_string(), value.to_string())),
+            }
+            self.write_settings(&settings)
+        })
     }
 
     pub fn get_default(&self) -> io::Result<Option<String>> {
@@ -176,27 +193,33 @@ impl AppConfig {
     }
 
     pub fn set_link(&self, dir: &str, account: &str) -> io::Result<()> {
-        let mut links = self.all_links()?;
-        links.retain(|(d, _)| d != dir);
-        links.push((dir.to_string(), account.to_string()));
-        self.write_links(&links)
+        self.locked(|| {
+            let mut links = self.all_links()?;
+            links.retain(|(d, _)| d != dir);
+            links.push((dir.to_string(), account.to_string()));
+            self.write_links(&links)
+        })
     }
 
     pub fn remove_link(&self, dir: &str) -> io::Result<bool> {
-        let mut links = self.all_links()?;
-        let before = links.len();
-        links.retain(|(d, _)| d != dir);
-        if links.len() == before {
-            return Ok(false);
-        }
-        self.write_links(&links)?;
-        Ok(true)
+        self.locked(|| {
+            let mut links = self.all_links()?;
+            let before = links.len();
+            links.retain(|(d, _)| d != dir);
+            if links.len() == before {
+                return Ok(false);
+            }
+            self.write_links(&links)?;
+            Ok(true)
+        })
     }
 
     pub fn remove_links_for_account(&self, account: &str) -> io::Result<()> {
-        let mut links = self.all_links()?;
-        links.retain(|(_, a)| a != account);
-        self.write_links(&links)
+        self.locked(|| {
+            let mut links = self.all_links()?;
+            links.retain(|(_, a)| a != account);
+            self.write_links(&links)
+        })
     }
 
     fn write_links(&self, links: &[(String, String)]) -> io::Result<()> {
@@ -210,8 +233,20 @@ impl AppConfig {
         } else {
             content + "\n"
         };
-        fs::write(self.links_path(), content)
+        replace_file(&self.links_path(), &content)
     }
+}
+
+/// Sibling temp + rename, as `identity::write_lock_at` does. A plain write
+/// truncates first, so a reader — or a crash — mid-write sees an empty file,
+/// and for `links` that is every binding gone. Callers hold `locked`, so the
+/// fixed temp name cannot collide.
+fn replace_file(path: &Path, content: &str) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, content)?;
+    fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
 }
 
 #[cfg(test)]
@@ -319,6 +354,43 @@ mod tests {
         let raw = fs::read_to_string(c.config_path()).unwrap();
         assert_eq!(raw.matches("resume_hook=").count(), 1, "{}", raw);
         assert_eq!(c.get_setting("resume_hook").as_deref(), Some("on"));
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn concurrent_writers_do_not_lose_each_others_links() {
+        // Regression: set_link was an unlocked read-modify-write, so two
+        // processes saving at once each wrote back the file they had read
+        // and one binding silently vanished. Separate `AppConfig`s open
+        // separate lock handles, exactly like two processes.
+        let c = temp_config("concurrent");
+        let base = c.base_dir.clone();
+        std::thread::scope(|s| {
+            for t in 0..8 {
+                let base = base.clone();
+                s.spawn(move || {
+                    let c = AppConfig { base_dir: base };
+                    for i in 0..25 {
+                        c.set_link(&format!("/p/{t}/{i}"), "work").unwrap();
+                    }
+                });
+            }
+        });
+        assert_eq!(c.all_links().unwrap().len(), 200);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn a_write_leaves_no_temp_file_behind() {
+        let c = temp_config("no-tmp");
+        c.set_link("/p", "work").unwrap();
+        c.set_default("work").unwrap();
+        let mut names: Vec<_> = fs::read_dir(&c.base_dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, [".config.lock", "accounts", "config", "links"]);
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 
