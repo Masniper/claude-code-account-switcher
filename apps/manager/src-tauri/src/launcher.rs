@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+// Only the macOS launcher reports a state; elsewhere there is no launch.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum LaunchState {
     /// The launcher ran in Terminal and handed over to the CLI. Whatever the
     /// CLI or Claude Code says next is in that window.
