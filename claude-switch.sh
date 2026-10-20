@@ -514,6 +514,29 @@ _claude_links_remove_dir() {
     mv "$tmpfile" "$CLAUDE_SWITCH_LINKS"
 }
 
+# Run "$@" holding the lock `claude-acc` takes around its edits of `config`
+# and `links`, so this script and the binary saving at the same moment
+# cannot drop each other's change. zsystem's fcntl lock and Rust's
+# File::lock exclude each other on macOS. If the lock is unavailable the
+# edit runs unlocked, exactly as it always did.
+_claude_config_locked() {
+    local lock="$CLAUDE_SWITCH_DIR/.config.lock" fd
+    if zmodload -F zsh/system b:zsystem 2>/dev/null \
+        && { [[ -e "$lock" ]] || : >> "$lock"; } 2>/dev/null \
+        && zsystem flock -t 5 -f fd "$lock" 2>/dev/null; then
+        "$@"
+        local rc=$?
+        zsystem flock -u "$fd"
+        return $rc
+    fi
+    "$@"
+}
+
+# Replace any link for $1 with $1=$2, as one locked edit.
+_claude_links_set() {
+    _claude_links_remove_dir "$1" && echo "${1}=${2}" >> "$CLAUDE_SWITCH_LINKS"
+}
+
 # --- Read configured default account ---
 _claude_default_account() {
     grep '^default=' "$CLAUDE_SWITCH_CONFIG" 2>/dev/null | cut -d= -f2
@@ -807,11 +830,11 @@ _claude_acc_remove() {
     local default_acc
     default_acc=$(_claude_default_account)
     if [[ "$default_acc" == "$name" ]]; then
-        sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
+        _claude_config_locked sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
     fi
 
     # Drop links pointing at this account
-    sed -i '' "/=$name$/d" "$CLAUDE_SWITCH_LINKS"
+    _claude_config_locked sed -i '' "/=$name$/d" "$CLAUDE_SWITCH_LINKS"
 
     # To the Trash rather than gone: an account dir holds transcripts,
     # settings and plugins that exist nowhere else, so getting this wrong
@@ -878,7 +901,7 @@ _claude_acc_default() {
     fi
 
     if [[ "$name" == "default" ]]; then
-        sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
+        _claude_config_locked sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
         _msg reset_done
         _claude_activate
         return
@@ -892,7 +915,7 @@ _claude_acc_default() {
         return 1
     fi
 
-    sed -i '' "s/^default=.*/default=$name/" "$CLAUDE_SWITCH_CONFIG"
+    _claude_config_locked sed -i '' "s/^default=.*/default=$name/" "$CLAUDE_SWITCH_CONFIG"
     _msg default_set "$name"
     _claude_activate
 }
@@ -917,11 +940,7 @@ _claude_acc_link() {
 
     local dir="$PWD"
 
-    # Drop existing link for this directory, if any
-    _claude_links_remove_dir "$dir"
-
-    # Append the new one
-    echo "${dir}=${name}" >> "$CLAUDE_SWITCH_LINKS"
+    _claude_config_locked _claude_links_set "$dir" "$name"
     if [[ "$name" == "default" ]]; then
         _msg link_done_default "$(basename "$dir")"
     else
@@ -938,7 +957,7 @@ _claude_acc_unlink() {
         return 1
     fi
 
-    _claude_links_remove_dir "$dir"
+    _claude_config_locked _claude_links_remove_dir "$dir"
     _msg unlink_done "$(basename "$dir")"
     _claude_activate
 }
@@ -1003,7 +1022,7 @@ _claude_acc_status() {
 }
 
 _claude_acc_reset() {
-    sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
+    _claude_config_locked sed -i '' "s/^default=.*/default=/" "$CLAUDE_SWITCH_CONFIG"
     _msg reset_done
     _claude_activate
 }
