@@ -700,8 +700,11 @@ mod tests {
             resolve::resolve_account(&c, &child).as_deref(),
             Some("work")
         );
+        // Paths are built from the scratch root: "/missing" is not absolute
+        // on Windows, which would be refused for the wrong reason.
+        let missing = root.join("missing-gui-test-directory");
         assert_eq!(
-            change_binding(&c, &standard, "/missing-gui-test-directory", Some("work")),
+            change_binding(&c, &standard, missing.to_str().unwrap(), Some("work")),
             Err(GuiError::DirectoryMissing)
         );
         fs::remove_dir_all(root).unwrap();
@@ -723,8 +726,9 @@ mod tests {
         for raw in ["relative", "/tmp/a\nb", " /tmp/a"] {
             assert_eq!(project_path(raw, false), Err(GuiError::InvalidDirectory));
         }
+        let dotdot = root.join("..").join("a");
         assert_eq!(
-            project_path("/tmp/../a", false),
+            project_path(dotdot.to_str().unwrap(), false),
             Err(GuiError::UnrepresentableDirectory)
         );
         change_default(&c, &standard, "work").unwrap();
@@ -746,8 +750,9 @@ mod tests {
         assert_eq!(run("default", None), Ok(root.join("home")));
         assert_eq!(run("ghost", None), Err(GuiError::AccountMissing));
         assert_eq!(run("a b", None), Err(GuiError::InvalidAccount));
+        let missing = root.join("missing-gui-launch");
         assert_eq!(
-            run("work", Some("/missing-gui-launch")),
+            run("work", missing.to_str()),
             Err(GuiError::DirectoryMissing)
         );
 
