@@ -1,7 +1,10 @@
 //! The modules the `claude-acc` binary is built from, as a library.
 //!
-//! Not a published API. They are `pub` only because the binary is a separate
-//! crate, and they change whenever the CLI needs them to.
+//! Not a published API. [`gui`] is the one module meant for other front ends;
+//! the rest are `pub` only because the binary is a separate crate, and they
+//! change whenever the CLI needs them to.
+
+pub mod gui;
 
 #[doc(hidden)]
 pub mod config;
