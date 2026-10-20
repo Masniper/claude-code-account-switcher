@@ -9,3 +9,6 @@ apps/manager/dist/
 apps/manager/src-tauri/target/
 apps/manager/src-tauri/gen/
 apps/manager/src-tauri/binaries/claude-acc*
+
+# Fake accounts for trying the manager (apps/manager/scripts/create-review-fixture.mjs)
+artifacts/
