@@ -33,6 +33,12 @@ export CLAUDE_ACC_LANG=en
 
 source "${0:A:h:h:h}/claude-switch.sh" >/dev/null 2>&1
 
+# The fixtures below and `_claude_acc_usage_cached` each read the clock. On a
+# loaded machine a second boundary fell between the two reads and every
+# expected age came out one higher (601, 61, 1), so both read this instead.
+frozen=$(command date +%s)
+date() { if [[ "$*" == "+%s" ]]; then print -r -- "$frozen"; else command date "$@"; fi }
+
 f="$scratch/config.json"
 
 check() {
