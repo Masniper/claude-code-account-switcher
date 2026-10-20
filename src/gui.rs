@@ -224,6 +224,19 @@ fn check_readable(path: &Path) -> Result<(), GuiError> {
     }
 }
 
+/// Whether a refresh may run, given `CLAUDE_SECURESTORAGE_CONFIG_DIR` as
+/// Claude Code sees it (`None` only when unset). Set at all, every account
+/// reads the same Keychain entry, or with an empty value the bare legacy one,
+/// so a live refresh would report one identity's figures for every account;
+/// `doctor`'s `shared_credential_store` reads the variable the same way. A
+/// local read is unaffected.
+fn live_allowed(live: bool, securestorage: Option<&str>) -> Result<(), GuiError> {
+    match (live, securestorage) {
+        (true, Some(_)) => Err(GuiError::SharedCredentialStore),
+        _ => Ok(()),
+    }
+}
+
 fn account_path(config: &AppConfig, standard: &Path, name: &str) -> PathBuf {
     if name == "default" {
         standard.to_path_buf()
@@ -453,9 +466,9 @@ pub fn snapshot(config: &AppConfig, standard: &Path, live: bool) -> Result<Snaps
     ] {
         reject_symlinks(&config.base_dir, &path)?;
     }
-    if live && identity::securestorage_override().is_some() {
-        return Err(GuiError::SharedCredentialStore);
-    }
+    // Read here, decided in `live_allowed`, so the decision is testable
+    // without touching the environment of a shared test process.
+    live_allowed(live, identity::securestorage_override().as_deref())?;
     check_readable(&config.config_path())?;
     let default = config
         .get_default()
@@ -863,6 +876,30 @@ mod tests {
         assert!(ids.contains(&("home", "s-1", true)));
         assert!(ids.contains(&("home", "s-2", false)));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_live_refresh_is_refused_while_one_credential_store_is_shared() {
+        // The only guard against reporting one account's identity and usage
+        // for every directory. Decided from the value, so the test needs no
+        // process-wide environment variable.
+        assert_eq!(live_allowed(true, None), Ok(()));
+        assert_eq!(
+            live_allowed(true, Some("/Users/x/.claude")),
+            Err(GuiError::SharedCredentialStore)
+        );
+        // Set but empty is the legacy shared entry, not "unset".
+        assert_eq!(
+            live_allowed(true, Some("")),
+            Err(GuiError::SharedCredentialStore)
+        );
+        assert_eq!(
+            live_allowed(true, Some(" ")),
+            Err(GuiError::SharedCredentialStore)
+        );
+        // A local read touches no credential store.
+        assert_eq!(live_allowed(false, Some("/Users/x/.claude")), Ok(()));
+        assert_eq!(live_allowed(false, None), Ok(()));
     }
 
     #[test]
