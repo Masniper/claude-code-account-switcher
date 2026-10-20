@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.21.1](https://github.com/Masniper/claude-code-account-switcher/compare/v0.21.0...v0.21.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* give each writer its own staging file, and write down what the lock does not promise ([#168](https://github.com/Masniper/claude-code-account-switcher/issues/168)) ([dbf2e15](https://github.com/Masniper/claude-code-account-switcher/commit/dbf2e156eb478713733e5acbc80a0df70fc1f744))
+* stop concurrent writers losing directory bindings and the default account ([#160](https://github.com/Masniper/claude-code-account-switcher/issues/160)) ([94c19a2](https://github.com/Masniper/claude-code-account-switcher/commit/94c19a2f93deb08c442d89772d8740e15333184a))
+
 ## [0.21.0](https://github.com/Nemo-Illusionist/claude-code-account-switcher/compare/v0.20.0...v0.21.0) (2026-10-15)
 
 
