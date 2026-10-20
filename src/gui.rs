@@ -446,7 +446,8 @@ pub fn snapshot(config: &AppConfig, standard: &Path, live: bool) -> Result<Snaps
     names.insert(0, "default".into());
     let now = now();
     let row = |name: &String| account(config, standard, name, &default, live, now);
-    // ponytail: one thread per account, bound it if dozens of accounts show up.
+    // TODO: one thread per account, unbounded; cap the fan-out if setups with
+    // dozens of accounts appear.
     let accounts = if live {
         std::thread::scope(|s| {
             let probes: Vec<_> = names.iter().map(|n| s.spawn(move || row(n))).collect();
@@ -540,7 +541,8 @@ pub fn change_binding(
     account: Option<&str>,
 ) -> Result<(), GuiError> {
     let path = project_path(directory, account.is_some())?;
-    // ponytail: the CLI's line-based bindings cannot represent '=', add escaping to both clients first.
+    // TODO: the line-based `links` format cannot represent '=' in a path;
+    // lifting this needs escaping in both the CLI and claude-switch.sh first.
     if account.is_some() && path.to_string_lossy().contains('=') {
         return Err(GuiError::UnrepresentableDirectory);
     }
