@@ -71,6 +71,6 @@ Every string the manager shows is in one place per side: `apps/manager/src/i18n.
 - macOS only for now. The launcher is the only platform-specific code, and other platforms get an explicit "macOS only" error from it.
 - Unsigned. macOS asks you to allow the first launch once; see [#165](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/165).
 - Usage and identity come from the same undocumented APIs and Keychain lookups the CLI uses, with the same caveats. A local identity record does not prove a live sign-in.
-- Account storage that is, or sits under, a symlink is refused. A project folder reached through a symlink resolves to its physical path, as the CLI's working directory does. Paths containing `=` cannot be bound, because the `links` format cannot represent them.
+- A symlink planted in account storage (an account directory, a credential or identity file, `config` or `links`) is refused. The storage itself may live behind a symlink, such as a home on another volume. A project folder reached through a symlink resolves to its physical path, as the CLI's working directory does. Paths containing `=` cannot be bound, because the `links` format cannot represent them.
 - Writes to `config` and `links` take the same lock as the CLI and `claude-switch.sh` (the script falls back to an unlocked write if it cannot get the lock within five seconds).
 - No account or session deletion, rotation, telemetry, auto-update or launch at login.
