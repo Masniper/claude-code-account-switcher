@@ -1,0 +1,115 @@
+name: Desktop
+
+on:
+  # No `paths` filter on `pull_request`, for the same reason as rust.yml: a
+  # required status check that never runs never reports. The job always runs;
+  # its first step decides whether this PR touches anything the app builds
+  # from, and skips the expensive steps if not.
+  pull_request:
+  push:
+    branches: [master]
+    paths:
+      - 'apps/desktop/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  CARGO_BUILD_JOBS: 2
+
+jobs:
+  desktop:
+    name: macos-latest
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The base commit is needed to diff a pull request against it.
+          fetch-depth: 0
+
+      - name: Does this change touch the app?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] ||
+             git diff --name-only "$BASE" HEAD |
+               grep -qE '^(apps/desktop/|src/|Cargo\.(toml|lock)$|\.github/workflows/desktop\.yml$)'; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing the desktop app builds from changed; skipping."
+          fi
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        if: steps.scope.outputs.build == 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Install Rust (stable, with rustfmt + clippy)
+        if: steps.scope.outputs.build == 'true'
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          # Spelled out because the pin replaced the `@stable` ref that used
+          # to carry this.
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        if: steps.scope.outputs.build == 'true'
+        with:
+          workspaces: |
+            . -> target
+            apps/desktop/src-tauri -> target
+
+      # No lifecycle scripts: nothing in the tree needs them (esbuild and
+      # fsevents ship prebuilt binaries), and they would run for the whole
+      # transitive dev tree with the workflow's access.
+      - name: npm ci --ignore-scripts
+        if: steps.scope.outputs.build == 'true'
+        working-directory: apps/desktop
+        run: npm ci --ignore-scripts
+
+      - name: Typecheck and frontend tests
+        if: steps.scope.outputs.build == 'true'
+        working-directory: apps/desktop
+        run: npm run check && npm test
+
+      # The Tauri crate embeds the built frontend and the bundled CLI, so both
+      # must exist before it compiles.
+      - name: Build the frontend and the bundled CLI
+        if: steps.scope.outputs.build == 'true'
+        working-directory: apps/desktop
+        run: npm run build && npm run prepare:cli
+
+      - name: cargo fmt --check (desktop)
+        if: steps.scope.outputs.build == 'true'
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all --check
+
+      - name: cargo clippy (desktop)
+        if: steps.scope.outputs.build == 'true'
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test (desktop)
+        if: steps.scope.outputs.build == 'true'
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml --release
+
+      # The full bundle is the slow part, so it runs after a merge and on
+      # demand, not on every pull request. Unsigned; nothing is published.
+      - name: Bundle the unsigned .app
+        if: steps.scope.outputs.build == 'true' && github.event_name != 'pull_request'
+        working-directory: apps/desktop
+        run: npm run tauri -- build --bundles app
