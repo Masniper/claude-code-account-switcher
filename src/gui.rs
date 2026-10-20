@@ -37,10 +37,12 @@
 //!
 //! No token, token hash, credential file, Keychain entry, raw config file or
 //! transcript path or content is serialized, by construction: the types
-//! have no field that could hold one. Account directories that are, or sit
-//! under, a symlink are refused before anything is read or written. There is
-//! no notion of a global "active" account; `is_default` is only the
-//! configured fallback for unbound directories.
+//! have no field that could hold one. A symlink planted in the storage (an
+//! account directory, a credential or identity file, `config`, `links`) is
+//! refused before anything is read or written; the storage roots themselves,
+//! and anything above them, may be symlinks. There is no notion of a global
+//! "active" account; `is_default` is only the configured fallback for
+//! unbound directories.
 use crate::config::{AppConfig, validate_name};
 use crate::{identity, resolve, sessions};
 use serde::{Deserialize, Serialize};
@@ -246,6 +248,16 @@ fn cache_path(config: &AppConfig, name: &str, dir: &Path) -> PathBuf {
     }
 }
 
+/// The directory an account's storage hangs from: the switch directory for a
+/// managed account, `~/.claude` itself for the standard one.
+fn storage_root<'a>(config: &'a AppConfig, standard: &'a Path, name: &str) -> &'a Path {
+    if name == "default" {
+        standard
+    } else {
+        &config.base_dir
+    }
+}
+
 /// An existing account directory whose storage is safe to read secrets from.
 fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBuf, GuiError> {
     if !validate_name(name) {
@@ -255,24 +267,35 @@ fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBu
     if !path.is_dir() {
         return Err(GuiError::AccountMissing);
     }
-    reject_symlinks(&path)?;
+    let root = storage_root(config, standard, name);
+    reject_symlinks(root, &path)?;
     for file in [
         ".credentials.json",
         ".account-info.json",
         identity::LOCK_FILE,
     ] {
-        reject_symlinks(&path.join(file))?;
+        reject_symlinks(root, &path.join(file))?;
     }
     if let Some(local) = identity::local_identity_path(&path) {
-        reject_symlinks(&local)?;
+        // The standard account's `.claude.json` sits beside `~/.claude`, in
+        // the home directory, not inside it.
+        let local_root = local.parent().ok_or(GuiError::StorageUnreadable)?;
+        reject_symlinks(local_root, &local)?;
     }
     Ok(path)
 }
 
-/// Refuse symlinked storage, including a symlinked parent, before reading
-/// secrets or writing.
-fn reject_symlinks(path: &Path) -> Result<(), GuiError> {
-    for ancestor in path.ancestors() {
+/// Refuse a symlink planted in the storage: any component of `path` strictly
+/// below `root`. `root` itself, and everything above it, may be symlinks: a
+/// home on another volume, `/home` → `/Users`, a Nix or home-manager layout,
+/// or a dotfiles `~/.claude-switch`. Those are where the storage lives, not
+/// something pointing out of it, and the CLI works in all of them.
+fn reject_symlinks(root: &Path, path: &Path) -> Result<(), GuiError> {
+    if !path.starts_with(root) {
+        // A caller bug: fail closed rather than check nothing.
+        return Err(GuiError::StorageUnreadable);
+    }
+    for ancestor in path.ancestors().take_while(|a| *a != root) {
         match fs::symlink_metadata(ancestor) {
             Ok(meta) if meta.file_type().is_symlink() => return Err(GuiError::SymlinkStorage),
             Ok(_) => (),
@@ -378,7 +401,7 @@ fn account(
     let local = identity::local_identity(&path);
     // The profile cache is shown only while it describes whoever is signed
     // in now; after a re-login it describes someone else.
-    let cache = reject_symlinks(&cache_path)
+    let cache = reject_symlinks(&config.base_dir, &cache_path)
         .ok()
         .and_then(|_| identity::read_cache_at(&cache_path))
         .filter(|c| {
@@ -421,7 +444,6 @@ fn account(
 /// APIs, one thread per account so a slow network costs one timeout rather
 /// than one per account; otherwise only local records are read.
 pub fn snapshot(config: &AppConfig, standard: &Path, live: bool) -> Result<Snapshot, GuiError> {
-    reject_symlinks(&config.base_dir)?;
     for path in [
         config.config_path(),
         config.links_path(),
@@ -429,7 +451,7 @@ pub fn snapshot(config: &AppConfig, standard: &Path, live: bool) -> Result<Snaps
         identity::default_cache_path(&config.base_dir),
         identity::default_lock_path(&config.base_dir),
     ] {
-        reject_symlinks(&path)?;
+        reject_symlinks(&config.base_dir, &path)?;
     }
     if live && identity::securestorage_override().is_some() {
         return Err(GuiError::SharedCredentialStore);
@@ -467,7 +489,7 @@ pub fn snapshot(config: &AppConfig, standard: &Path, live: bool) -> Result<Snaps
 }
 
 pub fn bindings(config: &AppConfig, selected: Option<&str>) -> Result<Bindings, GuiError> {
-    reject_symlinks(&config.links_path())?;
+    reject_symlinks(&config.base_dir, &config.links_path())?;
     let mut links = match config.all_links() {
         Ok(links) => links,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => vec![],
@@ -501,7 +523,11 @@ pub fn sessions(config: &AppConfig, standard: &Path) -> Result<Vec<Session>, Gui
     let mut all = Vec::new();
     for name in std::iter::once("default".to_string()).chain(names) {
         if let Ok(dir) = account_dir(config, standard, &name)
-            && reject_symlinks(&sessions::projects_dir(&dir)).is_ok()
+            && reject_symlinks(
+                storage_root(config, standard, &name),
+                &sessions::projects_dir(&dir),
+            )
+            .is_ok()
         {
             all.extend(sessions::list_in(&dir, &name, None));
         }
@@ -575,7 +601,7 @@ pub fn check_launch(
             if !validate_name(account) || account == "default" {
                 return Err(GuiError::InvalidAccount);
             }
-            reject_symlinks(&config.accounts_dir())?;
+            reject_symlinks(&config.base_dir, &config.accounts_dir())?;
             if config.account_path(account).exists() {
                 return Err(GuiError::AccountExists);
             }
@@ -608,7 +634,7 @@ fn writable(config: &AppConfig) -> Result<(), GuiError> {
         config.links_path(),
         config.accounts_dir(),
     ] {
-        reject_symlinks(&path)?;
+        reject_symlinks(&config.base_dir, &path)?;
     }
     check_readable(&config.config_path())?;
     check_readable(&config.links_path())?;
@@ -985,6 +1011,52 @@ mod tests {
             Err(GuiError::SymlinkStorage)
         );
         assert!(!outside.join("links").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_above_the_storage_is_not_a_symlink_in_it() {
+        // Regression: every ancestor up to `/` was checked, so a home reached
+        // through a symlink (another volume, /home -> /Users, Nix layouts)
+        // refused the whole snapshot as "symlinked account storage".
+        let (_, root) = fixture("ancestor");
+        let real = root.join("real-home");
+        fs::create_dir(&real).unwrap();
+        let home = root.join("home");
+        std::os::unix::fs::symlink(&real, &home).unwrap();
+        let c = AppConfig {
+            base_dir: home.join(".claude-switch"),
+        };
+        c.init().unwrap();
+        fs::create_dir_all(c.account_path("work")).unwrap();
+        let standard = home.join(".claude");
+        fs::create_dir(&standard).unwrap();
+
+        let s = snapshot(&c, &standard, false).unwrap();
+        let available: Vec<_> = s
+            .accounts
+            .iter()
+            .map(|a| (a.name.as_str(), a.available))
+            .collect();
+        assert_eq!(available, [("default", true), ("work", true)]);
+        assert!(change_default(&c, &standard, "work").is_ok());
+        assert!(bindings(&c, None).is_ok());
+
+        // A symlink planted in that same storage is still refused.
+        let outside = root.join("outside");
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("credentials"),
+            c.account_path("work").join(".credentials.json"),
+        )
+        .unwrap();
+        assert_eq!(
+            account_dir(&c, &standard, "work"),
+            Err(GuiError::SymlinkStorage)
+        );
+        std::os::unix::fs::symlink(&outside, standard.join("projects")).unwrap();
+        assert!(sessions(&c, &standard).unwrap().is_empty());
         fs::remove_dir_all(root).unwrap();
     }
 
