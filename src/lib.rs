@@ -1,9 +1,10 @@
-//! The modules the `claude-acc` binary is built from, as a library so other
-//! front ends can reuse them.
+//! The modules the `claude-acc` binary and the optional desktop app share.
 //!
-//! Not a published API: these are `pub` only because the binary is a separate
-//! crate, and they change whenever the CLI needs them to.
+//! Not a published API. `gui` is the one surface the desktop app is meant to
+//! use; the rest are `pub` only because the binary is a separate crate, and
+//! they change whenever the CLI needs them to.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub mod gui;
 
 #[doc(hidden)]
 pub mod config;
