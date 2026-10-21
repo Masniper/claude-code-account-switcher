@@ -274,6 +274,8 @@ const en = {
   } satisfies Record<ErrorCode, string>,
   unreachable:
     "Unable to reach the manager's backend. Open the installed app, then try again.",
+  unrecognised:
+    "The backend answered with an error this window does not recognise. Try again; if it repeats, reinstall Claude Accounts.",
   launchStarted: (account: string) =>
     `Started in Terminal under ${account}. Claude’s output, including any sign-in prompt, is in that window.`,
   launchPending:
@@ -306,11 +308,18 @@ export function useCopy(): Messages {
   return t;
 }
 
-/** Copy for a backend error code; anything else means the IPC itself failed. */
+/**
+ * Copy for a failed request. A backend code gets its own message. Any other
+ * string means the backend did answer, with something this window does not
+ * recognise (Tauri's own rejections look like that), so it must not be told
+ * the backend is unreachable. Only a non-string, a request that never got an
+ * answer, is that.
+ */
 export function describeError(t: Messages, error: unknown): string {
-  return typeof error === "string" && error in t.errors
-    ? t.errors[error as ErrorCode]
-    : t.unreachable;
+  if (typeof error !== "string") return t.unreachable;
+  // `hasOwn`, not `in`: `in` also admits "toString", "constructor" and the
+  // rest of the prototype chain, which are functions, not copy.
+  return Object.hasOwn(t.errors, error) ? t.errors[error as ErrorCode] : t.unrecognised;
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {

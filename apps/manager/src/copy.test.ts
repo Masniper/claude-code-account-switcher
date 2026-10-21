@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 import { sample } from "./contract.sample";
-import { LANGS, messages } from "./i18n";
+import { LANGS, describeError, messages } from "./i18n";
 
 /** Every leaf of a table as `path: kind`, so two tables can be compared. */
 function shape(table: object, prefix = ""): string[] {
@@ -21,6 +21,22 @@ describe("copy", () => {
         shape(messages.en).sort(),
       );
     }
+  });
+
+  it("words a failure by what actually happened", () => {
+    const t = messages.en;
+    expect(describeError(t, "cli_missing")).toBe(t.errors.cli_missing);
+    // Regression: `in` let prototype keys through, and they are functions.
+    for (const key of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      expect(describeError(t, key), key).toBe(t.unrecognised);
+    }
+    // The backend answered, just not with a code we know: not "unreachable".
+    expect(describeError(t, "invalid args `account` for command `set_default`")).toBe(
+      t.unrecognised,
+    );
+    // No answer at all.
+    expect(describeError(t, new TypeError("no IPC"))).toBe(t.unreachable);
+    expect(describeError(t, undefined)).toBe(t.unreachable);
   });
 
   it("every error code the backend can send has copy, and no other", () => {
