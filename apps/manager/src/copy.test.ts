@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 import { sample } from "./contract.sample";
-import { LANGS, messages } from "./i18n";
+import { LANGS, describeError, kilobytes, messages } from "./i18n";
 
 /** Every leaf of a table as `path: kind`, so two tables can be compared. */
 function shape(table: object, prefix = ""): string[] {
@@ -23,6 +23,29 @@ describe("copy", () => {
     }
   });
 
+  it("words a failure by what actually happened", () => {
+    const t = messages.en;
+    expect(describeError(t, "cli_missing")).toBe(t.errors.cli_missing);
+    // Regression: `in` let prototype keys through, and they are functions.
+    for (const key of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+      expect(describeError(t, key), key).toBe(t.unrecognised);
+    }
+    // The backend answered, just not with a code we know: not "unreachable".
+    expect(describeError(t, "invalid args `account` for command `set_default`")).toBe(
+      t.unrecognised,
+    );
+    // No answer at all.
+    expect(describeError(t, new TypeError("no IPC"))).toBe(t.unreachable);
+    expect(describeError(t, undefined)).toBe(t.unreachable);
+  });
+
+  it("formats sizes with the table's decimal separator, not always a dot", () => {
+    // Regression: `toFixed(1)` printed "1.5" whatever the language.
+    expect(kilobytes(messages.en, 1536)).toBe("1.5 KB");
+    expect(kilobytes({ ...messages.en, locale: "de" }, 1536)).toBe("1,5 KB");
+    expect(kilobytes(messages.en, 0)).toBe("0.0 KB");
+  });
+
   it("every error code the backend can send has copy, and no other", () => {
     const codes = [...sample.gui_errors, ...sample.manager_errors].sort();
     for (const lang of LANGS) {
@@ -31,6 +54,13 @@ describe("copy", () => {
   });
 });
 
+// A lint, not a fence. It catches the usual ways copy lands in a component:
+// JSX text, a user-facing attribute, and a literal a JSX expression renders.
+// It does not catch copy in a `.ts` file, copy passed as a component prop
+// (`confirmLabel="…"`), an attribute outside READ_BY_PEOPLE
+// (`aria-description`), a literal held in a module-scope `const`, or a
+// `"text " + value` concatenation. Review still has to look.
+//
 // The components' source, as Vite sees it.
 const components = import.meta.glob(["./**/*.tsx", "!./**/*.test.tsx", "!./i18n.tsx"], {
   query: "?raw",

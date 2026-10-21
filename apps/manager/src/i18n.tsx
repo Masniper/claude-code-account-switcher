@@ -1,15 +1,26 @@
 // Every user-facing string in the manager lives here (#166).
 //
-// `Messages` is the type of the English table, so every other language has to
-// supply the same keys with the same shapes: a missing key, an extra one, or a
-// function where a string belongs is a `tsc` error, the guarantee the CLI gets
-// from its exhaustive `match` over `(Msg, Lang)`. Nothing falls back from one
-// language to another, key by key or otherwise.
+// Every language supplies the same keys with the same shapes as English.
+// What enforces that, and what does not:
 //
-// Values that interpolate are functions, typed by what they take. Those that
-// carry inline markup take a ReactNode for the emphasised part, so a
-// translation can put it wherever its grammar needs it.
-import { createContext, useContext, type ReactNode } from "react";
+// - A missing key, or a string where a function belongs, is a `tsc` error
+//   (TS2741, TS2322).
+// - An extra key is a `tsc` error (TS2353) only if the table is declared
+//   `const ru: Messages = { … }`; referred to by an unannotated name it is
+//   not, so declare it that way. `copy.test.ts` catches an extra key either
+//   way.
+// - The `satisfies Record<…>` sub-tables reject a missing or an extra key on
+//   their own. Keep them `satisfies`: an `as` cast would compile without a
+//   missing error code and leave the test as the only barrier.
+// - Nothing checks that a value is translated: a table of English strings
+//   passes. Same keys and shapes is the whole guarantee.
+//
+// Nothing falls back from one language to another, key by key or otherwise.
+//
+// Values that interpolate are functions, and their arguments are typed. A
+// translation that ignores an argument, or drops the ReactNode it is handed
+// for inline markup, still compiles, so check that in review.
+import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 import type {
   ErrorCode,
   IdentitySource,
@@ -263,6 +274,8 @@ const en = {
   } satisfies Record<ErrorCode, string>,
   unreachable:
     "Unable to reach the manager's backend. Open the installed app, then try again.",
+  unrecognised:
+    "The backend answered with an error this window does not recognise. Try again; if it repeats, reinstall Claude Accounts.",
   launchStarted: (account: string) =>
     `Started in Terminal under ${account}. Claude’s output, including any sign-in prompt, is in that window.`,
   launchPending:
@@ -285,7 +298,15 @@ export const messages: Record<Lang, Messages> = { en };
 const Copy = createContext<Messages | null>(null);
 
 export function CopyProvider({ lang, children }: { lang: Lang; children: ReactNode }) {
-  return <Copy.Provider value={messages[lang]}>{children}</Copy.Provider>;
+  const t = messages[lang];
+  // `index.html` cannot know the language; the document's `lang` decides how
+  // a screen reader pronounces the page, so it follows the table, as does the
+  // window title.
+  useLayoutEffect(() => {
+    document.documentElement.lang = t.locale;
+    document.title = t.productName;
+  }, [t]);
+  return <Copy.Provider value={t}>{children}</Copy.Provider>;
 }
 
 /** The active language's table. */
@@ -295,11 +316,28 @@ export function useCopy(): Messages {
   return t;
 }
 
-/** Copy for a backend error code; anything else means the IPC itself failed. */
+/**
+ * Copy for a failed request. A backend code gets its own message. Any other
+ * string means the backend did answer, with something this window does not
+ * recognise (Tauri's own rejections look like that), so it must not be told
+ * the backend is unreachable. Only a non-string, a request that never got an
+ * answer, is that.
+ */
 export function describeError(t: Messages, error: unknown): string {
-  return typeof error === "string" && error in t.errors
-    ? t.errors[error as ErrorCode]
-    : t.unreachable;
+  if (typeof error !== "string") return t.unreachable;
+  // `hasOwn`, not `in`: `in` also admits "toString", "constructor" and the
+  // rest of the prototype chain, which are functions, not copy.
+  return Object.hasOwn(t.errors, error) ? t.errors[error as ErrorCode] : t.unrecognised;
+}
+
+/** A size in kilobytes, with the table's decimal separator. */
+export function kilobytes(t: Messages, bytes: number): string {
+  return t.sessionSize(
+    (bytes / 1024).toLocaleString(t.locale, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }),
+  );
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {

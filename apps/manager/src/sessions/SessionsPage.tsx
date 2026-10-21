@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api";
 import { Empty, Failure, Icon } from "../components";
 import type { Session } from "../contract";
-import { useCopy } from "../i18n";
+import { kilobytes, useCopy } from "../i18n";
 
 /** Rows rendered per step. The list itself is metadata only and cheap. */
 export const PAGE = 100;
@@ -60,7 +60,7 @@ function SessionRow({ session: s }: { session: Session }) {
     s.modified
       ? new Date(s.modified * 1000).toLocaleString(t.locale)
       : t.modifiedUnknown,
-    t.sessionSize((s.size / 1024).toFixed(1)),
+    kilobytes(t, s.size),
     ...(s.duplicate ? [t.copiesElsewhere] : []),
   ];
   return (
