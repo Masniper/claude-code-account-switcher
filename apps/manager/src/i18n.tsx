@@ -20,7 +20,7 @@
 // Values that interpolate are functions, and their arguments are typed. A
 // translation that ignores an argument, or drops the ReactNode it is handed
 // for inline markup, still compiles, so check that in review.
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 import type {
   ErrorCode,
   IdentitySource,
@@ -298,7 +298,15 @@ export const messages: Record<Lang, Messages> = { en };
 const Copy = createContext<Messages | null>(null);
 
 export function CopyProvider({ lang, children }: { lang: Lang; children: ReactNode }) {
-  return <Copy.Provider value={messages[lang]}>{children}</Copy.Provider>;
+  const t = messages[lang];
+  // `index.html` cannot know the language; the document's `lang` decides how
+  // a screen reader pronounces the page, so it follows the table, as does the
+  // window title.
+  useLayoutEffect(() => {
+    document.documentElement.lang = t.locale;
+    document.title = t.productName;
+  }, [t]);
+  return <Copy.Provider value={t}>{children}</Copy.Provider>;
 }
 
 /** The active language's table. */
@@ -320,6 +328,16 @@ export function describeError(t: Messages, error: unknown): string {
   // `hasOwn`, not `in`: `in` also admits "toString", "constructor" and the
   // rest of the prototype chain, which are functions, not copy.
   return Object.hasOwn(t.errors, error) ? t.errors[error as ErrorCode] : t.unrecognised;
+}
+
+/** A size in kilobytes, with the table's decimal separator. */
+export function kilobytes(t: Messages, bytes: number): string {
+  return t.sessionSize(
+    (bytes / 1024).toLocaleString(t.locale, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }),
+  );
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {

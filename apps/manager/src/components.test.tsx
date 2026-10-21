@@ -29,3 +29,15 @@ it("tells a screen reader the same figure the label shows, even above 100", () =
   expect(normal.getAttribute("aria-valuemax")).toBe("100");
   expect(normal.getAttribute("aria-valuetext")).toBe("42%");
 });
+
+it("sets the document's language and title from the table", () => {
+  document.documentElement.lang = "";
+  document.title = "";
+  render(
+    <CopyProvider lang="en">
+      <span />
+    </CopyProvider>,
+  );
+  expect(document.documentElement.lang).toBe("en");
+  expect(document.title).toBe("Claude Accounts");
+});
