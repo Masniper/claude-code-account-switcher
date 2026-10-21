@@ -1,14 +1,25 @@
 // Every user-facing string in the manager lives here (#166).
 //
-// `Messages` is the type of the English table, so every other language has to
-// supply the same keys with the same shapes: a missing key, an extra one, or a
-// function where a string belongs is a `tsc` error, the guarantee the CLI gets
-// from its exhaustive `match` over `(Msg, Lang)`. Nothing falls back from one
-// language to another, key by key or otherwise.
+// Every language supplies the same keys with the same shapes as English.
+// What enforces that, and what does not:
 //
-// Values that interpolate are functions, typed by what they take. Those that
-// carry inline markup take a ReactNode for the emphasised part, so a
-// translation can put it wherever its grammar needs it.
+// - A missing key, or a string where a function belongs, is a `tsc` error
+//   (TS2741, TS2322).
+// - An extra key is a `tsc` error (TS2353) only if the table is declared
+//   `const ru: Messages = { … }`; referred to by an unannotated name it is
+//   not, so declare it that way. `copy.test.ts` catches an extra key either
+//   way.
+// - The `satisfies Record<…>` sub-tables reject a missing or an extra key on
+//   their own. Keep them `satisfies`: an `as` cast would compile without a
+//   missing error code and leave the test as the only barrier.
+// - Nothing checks that a value is translated: a table of English strings
+//   passes. Same keys and shapes is the whole guarantee.
+//
+// Nothing falls back from one language to another, key by key or otherwise.
+//
+// Values that interpolate are functions, and their arguments are typed. A
+// translation that ignores an argument, or drops the ReactNode it is handed
+// for inline markup, still compiles, so check that in review.
 import { createContext, useContext, type ReactNode } from "react";
 import type {
   ErrorCode,
