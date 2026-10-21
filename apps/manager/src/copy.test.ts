@@ -54,6 +54,13 @@ describe("copy", () => {
   });
 });
 
+// A lint, not a fence. It catches the usual ways copy lands in a component:
+// JSX text, a user-facing attribute, and a literal a JSX expression renders.
+// It does not catch copy in a `.ts` file, copy passed as a component prop
+// (`confirmLabel="…"`), an attribute outside READ_BY_PEOPLE
+// (`aria-description`), a literal held in a module-scope `const`, or a
+// `"text " + value` concatenation. Review still has to look.
+//
 // The components' source, as Vite sees it.
 const components = import.meta.glob(["./**/*.tsx", "!./**/*.test.tsx", "!./i18n.tsx"], {
   query: "?raw",
