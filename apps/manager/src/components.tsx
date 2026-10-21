@@ -67,9 +67,13 @@ export function Meter({
         className="meter-track"
         role="meter"
         aria-label={label}
-        aria-valuenow={percent == null ? undefined : clamp(percent)}
+        // The same number the label shows, with the maximum stretched to fit
+        // it: clamping `aria-valuenow` alone made a screen reader hear two
+        // different figures above 100. Whether readings should be clamped at
+        // all is a question for every surface, not for this widget.
+        aria-valuenow={percent == null ? undefined : Math.max(0, percent)}
         aria-valuemin={0}
-        aria-valuemax={100}
+        aria-valuemax={Math.max(100, percent ?? 0)}
         aria-valuetext={percent == null ? t.meterUnavailable : `${Math.round(percent)}%`}
       >
         <div
