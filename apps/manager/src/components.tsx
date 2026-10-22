@@ -53,28 +53,34 @@ export function Meter({
   now: number;
 }) {
   const t = useCopy();
-  const percent = currentPercent(value, now);
+  const raw = currentPercent(value, now);
+  // Rounded once, and this one figure is used for the label, every ARIA
+  // value and the bar, so no channel can disagree with another: rounding
+  // some and not others made 99.5 read "100%" beside `valuenow` 99.5.
+  const percent = raw == null ? null : Math.round(raw);
   const passed = value != null && resetPassed(value, now);
   return (
     <div className="meter">
       <div className="meter-heading">
         <span>{label}</span>
         <strong>
-          {percent != null ? `${Math.round(percent)}%` : passed ? t.resetPassed : "—"}
+          {percent != null ? `${percent}%` : passed ? t.resetPassed : "—"}
         </strong>
       </div>
       <div
         className="meter-track"
         role="meter"
         aria-label={label}
-        // The same number the label shows, with the maximum stretched to fit
-        // it: clamping `aria-valuenow` alone made a screen reader hear two
-        // different figures above 100. Whether readings should be clamped at
-        // all is a question for every surface, not for this widget.
-        aria-valuenow={percent == null ? undefined : Math.max(0, percent)}
-        aria-valuemin={0}
+        // The label's own figure. The range stretches to contain it, below 0
+        // as above 100, so `valuenow` always sits inside it as the spec
+        // requires. The trade-off: 120/120 has the same ratio as 100/100 for
+        // anything that computes one; what is announced is `valuetext`.
+        // Whether readings should be clamped at all is a question for every
+        // surface, not for this widget.
+        aria-valuenow={percent ?? undefined}
+        aria-valuemin={Math.min(0, percent ?? 0)}
         aria-valuemax={Math.max(100, percent ?? 0)}
-        aria-valuetext={percent == null ? t.meterUnavailable : `${Math.round(percent)}%`}
+        aria-valuetext={percent == null ? t.meterUnavailable : `${percent}%`}
       >
         <div
           className={percent != null && percent >= 90 ? "hot" : ""}

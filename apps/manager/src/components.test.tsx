@@ -11,23 +11,35 @@ const meter = (percent: number) => {
       <Meter label="5-hour window" value={{ percent, resets_at: null }} now={0} />
     </CopyProvider>,
   );
-  return screen.getByRole("meter");
+  const element = screen.getByRole("meter");
+  const read = (name: string) => element.getAttribute(name);
+  const bar = element.firstElementChild as HTMLElement;
+  return {
+    label: screen.getByText(/%$/).textContent,
+    now: read("aria-valuenow"),
+    min: read("aria-valuemin"),
+    max: read("aria-valuemax"),
+    text: read("aria-valuetext"),
+    width: bar.style.width,
+  };
 };
 
-it("tells a screen reader the same figure the label shows, even above 100", () => {
-  // Regression: `aria-valuenow` was clamped to 100 while `aria-valuetext` and
-  // the visible label said 120, so one element reported two numbers.
-  const over = meter(120);
-  expect(screen.getByText("120%")).toBeTruthy();
-  expect(over.getAttribute("aria-valuetext")).toBe("120%");
-  expect(over.getAttribute("aria-valuenow")).toBe("120");
-  expect(over.getAttribute("aria-valuemax")).toBe("120");
-  cleanup();
-
-  const normal = meter(42);
-  expect(normal.getAttribute("aria-valuenow")).toBe("42");
-  expect(normal.getAttribute("aria-valuemax")).toBe("100");
-  expect(normal.getAttribute("aria-valuetext")).toBe("42%");
+it("every channel of the meter reports the same figure", () => {
+  // Regression: `valuenow` was clamped while the label was not (120), the
+  // label was rounded while `valuenow` was not (99.5), and `valuenow` was
+  // clamped at 0 while the label said -5. One element, two numbers, each time.
+  const cases: [number, Record<string, string>][] = [
+    [-5, { label: "-5%", now: "-5", min: "-5", max: "100", text: "-5%", width: "0%" }],
+    [0, { label: "0%", now: "0", min: "0", max: "100", text: "0%", width: "0%" }],
+    [42, { label: "42%", now: "42", min: "0", max: "100", text: "42%", width: "42%" }],
+    [99.5, { label: "100%", now: "100", min: "0", max: "100", text: "100%", width: "100%" }],
+    [120, { label: "120%", now: "120", min: "0", max: "120", text: "120%", width: "100%" }],
+    [120.4, { label: "120%", now: "120", min: "0", max: "120", text: "120%", width: "100%" }],
+  ];
+  for (const [percent, expected] of cases) {
+    expect(meter(percent), String(percent)).toStrictEqual(expected);
+    cleanup();
+  }
 });
 
 it("sets the document's language and title from the table", () => {
