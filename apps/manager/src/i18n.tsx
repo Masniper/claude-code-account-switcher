@@ -3,15 +3,20 @@
 // Every language supplies the same keys with the same shapes as English.
 // What enforces that, and what does not:
 //
-// - A missing key, or a string where a function belongs, is a `tsc` error
-//   (TS2741, TS2322).
-// - An extra key is a `tsc` error (TS2353) only if the table is declared
-//   `const ru: Messages = { … }`; referred to by an unannotated name it is
-//   not, so declare it that way. `copy.test.ts` catches an extra key either
-//   way.
+// - Missing keys are a `tsc` error: TS2741 for one, TS2739 for two or more.
+//   A string where a function belongs is TS2322.
+// - An extra key is a `tsc` error (TS2353) only where the table is written as
+//   a fresh object literal in a type-checked position, such as
+//   `const ru: Messages = { … }` or inline in `messages`. Built through a
+//   named variable or `Object.assign` it is not, annotation or not, so write
+//   the literal there. `copy.test.ts` catches an extra key either way, but
+//   only one with a string or function value: it compares leaves, so an
+//   extra `{}` or `[]` is invisible to both.
 // - The `satisfies Record<…>` sub-tables reject a missing or an extra key on
-//   their own. Keep them `satisfies`: an `as` cast would compile without a
-//   missing error code and leave the test as the only barrier.
+//   their own, and for three of the four that is the only check: no test
+//   covers `identitySources`, `lockStates` or `usageSources`. As an `as` cast
+//   with a key removed, one compiles, passes every test and renders
+//   `undefined` for that state. Never turn them into casts.
 // - Nothing checks that a value is translated: a table of English strings
 //   passes. Same keys and shapes is the whole guarantee.
 //
@@ -319,9 +324,13 @@ export function useCopy(): Messages {
 /**
  * Copy for a failed request. A backend code gets its own message. Any other
  * string means the backend did answer, with something this window does not
- * recognise (Tauri's own rejections look like that), so it must not be told
- * the backend is unreachable. Only a non-string, a request that never got an
- * answer, is that.
+ * recognise, so it must not be told the backend is unreachable. Only a
+ * non-string, a request that never got an answer, is that. Tauri's own
+ * rejections are strings of the second kind, read from tauri 2.12.4: its
+ * errors reach the window through `From<crate::Error> for InvokeError`
+ * (`ipc/mod.rs`) as `Value::String(error.to_string())`, bad arguments
+ * included, and an unknown command is rejected with
+ * `format!("Command {command} not found")` (`webview/mod.rs`).
  */
 export function describeError(t: Messages, error: unknown): string {
   if (typeof error !== "string") return t.unreachable;
