@@ -1,26 +1,17 @@
 // Every user-facing string in the manager lives here (#166).
 //
 // Every language supplies the same keys with the same shapes as English.
-// What enforces that, and what does not:
+// Nothing checks that a value is translated, and nothing falls back from one
+// language to another.
 //
-// - Missing keys are a `tsc` error: TS2741 for one, TS2739 for two or more.
-//   A string where a function belongs is TS2322.
-// - An extra key is a `tsc` error (TS2353) only where the table is written as
-//   a fresh object literal in a type-checked position, such as
-//   `const ru: Messages = { … }` or inline in `messages`. Built through a
-//   named variable or `Object.assign` it is not, annotation or not, so write
-//   the literal there. `copy.test.ts` catches an extra key either way, but
-//   only one with a string or function value: it compares leaves, so an
-//   extra `{}` or `[]` is invisible to both.
-// - The `satisfies Record<…>` sub-tables reject a missing or an extra key on
-//   their own, and for three of the four that is the only check: no test
-//   covers `identitySources`, `lockStates` or `usageSources`. As an `as` cast
-//   with a key removed, one compiles, passes every test and renders
-//   `undefined` for that state. Never turn them into casts.
-// - Nothing checks that a value is translated: a table of English strings
-//   passes. Same keys and shapes is the whole guarantee.
+// Which ways of writing a table `tsc` catches mistakes in, and which slip, is
+// in `copy.types.test.ts` as compiled cases, not here. Keep the
+// `satisfies Record<…>` sub-tables as they are: a cast would accept a missing
+// state.
 //
-// Nothing falls back from one language to another, key by key or otherwise.
+// While English is the only language, the shape comparison in `copy.test.ts`
+// compares English with itself and catches nothing; it starts to matter with
+// the second one.
 //
 // Values that interpolate are functions, and their arguments are typed. A
 // translation that ignores an argument, or drops the ReactNode it is handed
