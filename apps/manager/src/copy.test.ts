@@ -14,8 +14,8 @@ function shape(table: object, prefix = ""): string[] {
 
 describe("copy", () => {
   it("every language has exactly the English keys, with the same shapes", () => {
-    // `tsc` enforces this already; this keeps the guarantee visible in the
-    // test run as well, and names the key when it fails.
+    // Names the key when a language drifts. With English the only language
+    // it compares English with itself, so it catches nothing yet.
     for (const lang of LANGS) {
       expect(shape(messages[lang]).sort(), lang).toStrictEqual(
         shape(messages.en).sort(),
