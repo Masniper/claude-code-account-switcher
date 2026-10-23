@@ -1,4 +1,5 @@
-// Every user-facing string in the manager lives here (#166).
+// Every piece of prose in the manager lives here (#166). `index.html` keeps a
+// title and `lang` of its own only until `CopyProvider` replaces them.
 //
 // Every language supplies the same keys with the same shapes as English.
 // Nothing checks that a value is translated, and nothing falls back from one
