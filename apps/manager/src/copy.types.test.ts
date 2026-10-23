@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import ts from "typescript";
+import { messages } from "./i18n";
 
 // What `tsc` does and does not catch when a language table is written, as
 // executable cases rather than prose. Each snippet is compiled against the
@@ -17,25 +18,23 @@ import type { IdentitySource } from "./contract";
 const en = messages.en;
 `;
 
+// A table with its first `n` keys left out, whichever they are, so renaming
+// a key does not change what a row means.
+const missing = (n: number) => {
+  const names = Object.keys(messages.en).slice(0, n);
+  const omitted = names.map((name, i) => `${name}: _${i}`).join(", ");
+  return `const { ${omitted}, ...t } = en; export const u: Messages = t;`;
+};
+
 const cases: [string, string, number[]][] = [
   // A control: if this reports anything, the harness is broken, not the table.
   ["a complete table", `export const t: Messages = { ...en };`, []],
 
   // Missing keys are always caught, wherever the table comes from. The code
   // depends on how many are missing.
-  ["one key missing", `const { productName: _, ...t } = en; export const u: Messages = t;`, [2741]],
-  [
-    "two keys missing",
-    `const { productName: _a, eyebrow: _b, ...t } = en; export const u: Messages = t;`,
-    [2739],
-  ],
-  [
-    "six keys missing",
-    `const { productName: _a, productTagline: _b, eyebrow: _c, dialogEyebrow: _d,
-       navHeading: _e, navAria: _f, ...t } = en;
-     export const u: Messages = t;`,
-    [2740],
-  ],
+  ["one key missing", missing(1), [2741]],
+  ["two keys missing", missing(2), [2739]],
+  ["six keys missing", missing(6), [2740]],
   ["a string where a function belongs", `export const t: Messages = { ...en, sessionSize: "x" };`, [2322]],
 
   // An extra key is caught only when it is written in a literal that is
@@ -104,7 +103,40 @@ it("tsc catches these mistakes in a language table, and lets these through", () 
 
   const got = cases.map(([name], i) => {
     const file = program.getSourceFile(`${src}__copy_case_${i}.ts`)!;
-    return [name, program.getSemanticDiagnostics(file).map((d) => d.code)];
+    // Syntactic too: a row expecting nothing must not pass by not parsing.
+    const diagnostics = [
+      ...program.getSyntacticDiagnostics(file),
+      ...program.getSemanticDiagnostics(file),
+    ];
+    return [name, diagnostics.map((d) => d.code)];
   });
   expect(got).toStrictEqual(cases.map(([name, , codes]) => [name, codes]));
+});
+
+it("the sub-tables keyed by a contract union stay on `satisfies`", () => {
+  // The last two rows above are why: as a cast, one with a state removed
+  // compiles, passes every other test and renders `undefined` for it.
+  const text = ts.sys.readFile(`${src}i18n.tsx`);
+  if (text === undefined) throw new Error("i18n.tsx not found");
+  const source = ts.createSourceFile("i18n.tsx", text, ts.ScriptTarget.Latest, true);
+  const checked: string[] = [];
+  const cast: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isVariableDeclaration(node) && node.name.getText(source) === "en") {
+      const table = node.initializer;
+      if (!table || !ts.isObjectLiteralExpression(table)) throw new Error("`en` is not a literal");
+      for (const property of table.properties) {
+        if (!ts.isPropertyAssignment(property)) continue;
+        const name = property.name.getText(source);
+        if (ts.isSatisfiesExpression(property.initializer)) checked.push(name);
+        if (ts.isAsExpression(property.initializer)) cast.push(name);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  expect({ checked: checked.sort(), cast }).toStrictEqual({
+    checked: ["errors", "identitySources", "lockStates", "usageSources"],
+    cast: [],
+  });
 });
