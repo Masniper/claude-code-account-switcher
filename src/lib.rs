@@ -9,6 +9,14 @@ pub mod gui;
 #[doc(hidden)]
 pub mod config;
 #[doc(hidden)]
+pub mod desktop;
+#[doc(hidden)]
+pub mod desktop_auth;
+// APFS clonefile and /bin/cp -c; the whole mechanism is macOS's.
+#[cfg(target_os = "macos")]
+#[doc(hidden)]
+pub mod desktop_runtime;
+#[doc(hidden)]
 pub mod environment;
 #[doc(hidden)]
 pub mod identity;
