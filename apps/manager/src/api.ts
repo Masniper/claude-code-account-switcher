@@ -17,6 +17,8 @@ export const api = {
   setDefault: (account: string) => invoke<Snapshot>("set_default", { account }),
   removeAccount: (account: string) =>
     invoke<Snapshot>("remove_account", { account }),
+  pinAccount: (account: string, force: boolean) =>
+    invoke<Snapshot>("pin_account", { account, force }),
   bindings: (directory: string | null) =>
     invoke<Bindings>("list_bindings", { directory }),
   bind: (directory: string, account: string | null) =>

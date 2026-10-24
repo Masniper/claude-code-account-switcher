@@ -138,9 +138,9 @@ impl Backend {
         Some(self.stamp(&mut latest, last))
     }
 
-    /// The default and the account list are read from disk at every commit:
-    /// a build that started before a default change or a removal must not
-    /// put the old default, or the removed account, back.
+    /// The default, the account list and every pin state are read from disk
+    /// at every commit: a build that started before a default change, a
+    /// removal or a pin must not put the old value back.
     fn stamp(&self, latest: &mut Option<Latest>, mut next: Latest) -> Revisioned {
         if let Ok(default) = self.config.get_default() {
             next.snapshot
@@ -151,6 +151,9 @@ impl Backend {
             .snapshot
             .accounts
             .retain(|a| a.name == "default" || self.config.account_path(&a.name).is_dir());
+        for a in &mut next.snapshot.snapshot.accounts {
+            a.lock = gui::lock_of(&self.config, &self.standard, &a.name);
+        }
         next.snapshot.revision += 1;
         let snapshot = next.snapshot.clone();
         *latest = Some(next);
@@ -195,6 +198,18 @@ pub fn set_default(app: &AppHandle, account: &str) -> Result<Revisioned, AppErro
 pub fn remove_account(app: &AppHandle, account: &str) -> Result<Revisioned, AppError> {
     let backend = app.state::<Backend>();
     gui::remove_account(&backend.config, &backend.standard, account)?;
+    match backend.commit_change() {
+        Some(snapshot) => {
+            publish(app, &snapshot);
+            Ok(snapshot)
+        }
+        None => refresh(app, false),
+    }
+}
+
+pub fn pin_account(app: &AppHandle, account: &str, force: bool) -> Result<Revisioned, AppError> {
+    let backend = app.state::<Backend>();
+    gui::pin_account(&backend.config, &backend.standard, account, force)?;
     match backend.commit_change() {
         Some(snapshot) => {
             publish(app, &snapshot);
@@ -264,6 +279,34 @@ mod tests {
             .map(|a| a.name)
             .collect();
         assert_eq!(names, ["default", "work"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_that_read_the_old_pin_does_not_put_it_back() {
+        let root = std::env::temp_dir().join(format!("cc-mgr-pin-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = AppConfig {
+            base_dir: root.join("switch"),
+        };
+        config.init().unwrap();
+        let work = config.account_path("work");
+        std::fs::create_dir_all(&work).unwrap();
+        std::fs::write(
+            work.join(".claude.json"),
+            r#"{"oauthAccount":{"accountUuid":"u-1"}}"#,
+        )
+        .unwrap();
+        let backend = Backend::new(config, root.join("standard"));
+        // Built before the pin: unpinned.
+        let built = gui::snapshot(&backend.config, &backend.standard, false).unwrap();
+        assert_eq!(built.accounts[1].lock, gui::LockStatus::Unpinned);
+        gui::pin_account(&backend.config, &backend.standard, "work", false).unwrap();
+        let committed = backend.commit_build(built, false);
+        assert_eq!(
+            committed.snapshot.accounts[1].lock,
+            gui::LockStatus::Matched
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

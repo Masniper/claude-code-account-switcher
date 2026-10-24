@@ -19,7 +19,7 @@ export function AccountsPage({
   setAdding: (adding: boolean) => void;
 }) {
   const t = useCopy();
-  const { snapshot, error, loading, refresh, setDefault, removeAccount } = state;
+  const { snapshot, error, loading, refresh, setDefault, removeAccount, pinAccount } = state;
   const [search, setSearch] = useState("");
   const now = useNow();
   const accounts = snapshot?.accounts ?? [];
@@ -93,6 +93,7 @@ export function AccountsPage({
               now={now}
               setDefault={setDefault}
               removeAccount={removeAccount}
+              pinAccount={pinAccount}
             />
           ))}
         </div>

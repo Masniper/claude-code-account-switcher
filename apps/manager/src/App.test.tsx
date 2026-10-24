@@ -19,6 +19,7 @@ vi.mock("./api", async (importOriginal) => ({
     snapshot: vi.fn(),
     setDefault: vi.fn(),
     removeAccount: vi.fn(),
+    pinAccount: vi.fn(),
     bindings: vi.fn(),
     bind: vi.fn(),
     sessions: vi.fn(),
@@ -150,6 +151,52 @@ describe("accounts", () => {
       "nothing was removed",
     );
     expect(card("personal")).toBeTruthy();
+  });
+
+  it("re-pins a drifted account only with force, and unblocks its launch", async () => {
+    const pinned = snapshot();
+    pinned.revision = 4;
+    pinned.accounts.find((a) => a.name === "personal")!.lock = "matched";
+    vi.mocked(api.pinAccount).mockResolvedValue(pinned);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    // A matched pin offers neither action.
+    expect(within(card("work")).queryByText(/pin/i)).toBeNull();
+    const launch = () =>
+      within(card("personal")).getByRole("button", { name: /Open Claude/ }) as HTMLButtonElement;
+    expect(launch().disabled).toBe(true);
+    fireEvent.click(within(card("personal")).getByText("Re-pin to signed-in identity…"));
+    expect(api.pinAccount).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Re-pin" }));
+    await waitFor(() => expect(api.pinAccount).toHaveBeenCalledWith("personal", true));
+    await waitFor(() => expect(launch().disabled).toBe(false));
+  });
+
+  it("pins an unpinned account without force", async () => {
+    const unpinned = snapshot();
+    unpinned.accounts.find((a) => a.name === "work")!.lock = "unpinned";
+    vi.mocked(api.snapshot).mockResolvedValue(unpinned);
+    vi.mocked(api.pinAccount).mockResolvedValue(snapshot());
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("work")).getByText("Pin identity…"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    await waitFor(() => expect(api.pinAccount).toHaveBeenCalledWith("work", false));
+  });
+
+  it("says why an account that never signed in cannot be pinned", async () => {
+    const unpinned = snapshot();
+    unpinned.accounts.find((a) => a.name === "work")!.lock = "unpinned";
+    vi.mocked(api.snapshot).mockResolvedValue(unpinned);
+    vi.mocked(api.pinAccount).mockRejectedValue("not_signed_in");
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("work")).getByText("Pin identity…"));
+    fireEvent.click(screen.getByRole("button", { name: "Pin" }));
+    const dialog = await screen.findByRole("dialog");
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "never signed in",
+    );
   });
 
   it("closes an account's action menu once used, or on a click elsewhere", async () => {

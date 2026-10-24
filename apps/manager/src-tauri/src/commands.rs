@@ -31,6 +31,15 @@ pub async fn remove_account(app: AppHandle, account: String) -> Result<Revisione
 }
 
 #[tauri::command]
+pub async fn pin_account(
+    app: AppHandle,
+    account: String,
+    force: bool,
+) -> Result<Revisioned, AppError> {
+    blocking(app, move |app| backend::pin_account(app, &account, force)).await
+}
+
+#[tauri::command]
 pub async fn list_bindings(
     app: AppHandle,
     directory: Option<String>,

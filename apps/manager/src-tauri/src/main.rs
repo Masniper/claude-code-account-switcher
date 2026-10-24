@@ -20,6 +20,7 @@ fn main() {
             commands::snapshot,
             commands::set_default,
             commands::remove_account,
+            commands::pin_account,
             commands::list_bindings,
             commands::set_binding,
             commands::list_sessions,

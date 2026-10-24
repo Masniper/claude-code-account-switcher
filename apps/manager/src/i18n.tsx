@@ -118,11 +118,30 @@ const en = {
   detailsAction: "Details & diagnostics",
   loginAction: "Authenticate / re-login",
   makeDefaultAction: "Make default…",
+  pinAction: "Pin identity…",
+  repinAction: "Re-pin to signed-in identity…",
   trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
   loginBody:
     "Open the existing Claude login flow in Terminal. Check the browser identity before signing in. Return here and refresh after the login finishes.",
+  pinTitle: (name: string) => `Pin ${name} to its identity?`,
+  pinConfirm: "Pin",
+  pinBody: (name: ReactNode) => (
+    <>
+      Pin {name} to the identity it is signed in as now. If it is later signed
+      in as someone else, launching it is blocked until it is re-pinned.
+    </>
+  ),
+  repinTitle: (name: string) => `Re-pin ${name}?`,
+  repinConfirm: "Re-pin",
+  repinBody: (name: ReactNode) => (
+    <>
+      {name} is signed in as someone other than its pin, or its pin cannot be
+      read. Re-pinning accepts the identity signed in now and unblocks
+      launching. Do it only if signing in as that identity was intended.
+    </>
+  ),
   trashTitle: (name: string) => `Move ${name} to the Trash?`,
   trashConfirm: "Move to Trash",
   trashBody: (name: ReactNode) => (
@@ -256,10 +275,12 @@ const en = {
 
   // Backend results
   errors: {
+    not_signed_in:
+      "This account has never signed in, so there is no identity to pin. Sign in first, then pin it.",
     trash_unavailable:
       "The account could not be moved to the Trash, so nothing was removed. `claude-acc remove --purge` in Terminal deletes it outright.",
     identity_drift:
-      "The account identity differs from its pin, or the pin is corrupt. Inspect it with the CLI before launching.",
+      "The account identity differs from its pin, or the pin is corrupt. If signing in as this identity was intended, re-pin it from the account menu; otherwise sign in again as the pinned one.",
     shared_credential_store:
       "A shared credential-store override is set. Live refresh is disabled because it could report one account for every directory. Launch the manager without CLAUDE_SECURESTORAGE_CONFIG_DIR.",
     invalid_account:
