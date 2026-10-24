@@ -240,7 +240,10 @@ pub fn clear_wrapper(settings: &Path) -> std::io::Result<bool> {
 /// The temporary sits beside the target so the rename stays on one
 /// filesystem, which is what makes it atomic.
 fn write_atomically(settings: &Path, content: &str) -> std::io::Result<()> {
-    let tmp = settings.with_extension("json.claude-acc-tmp");
+    // One name per process: the CLI and the manager can both write this
+    // file, and a shared temporary would let their bytes mix before the
+    // rename, as #168 found for `config`.
+    let tmp = settings.with_extension(format!("json.claude-acc-tmp.{}", std::process::id()));
     fs::write(&tmp, content)?;
     // The rename gives the target the temporary's permissions, so carry the
     // original's across rather than silently resetting someone's mode.
@@ -1038,6 +1041,27 @@ mod tests {
 
             fs::remove_dir_all(&dir).unwrap();
         }
+    }
+
+    #[test]
+    fn another_writers_temporary_is_neither_used_nor_removed() {
+        // The CLI and the manager both write here. A temporary under one
+        // shared name would let one process's bytes land in the other's
+        // file before the rename (#168 found that for `config`).
+        let dir = scratch("atomic-shared");
+        let settings = dir.join("settings.json");
+        let theirs = dir.join("settings.json.claude-acc-tmp");
+        fs::write(&settings, "{}\n").unwrap();
+        fs::write(&theirs, "another process, half written").unwrap();
+        assert!(set_wrapper(&settings, &dir.join("bin").join(WRAPPER_NAME)).unwrap());
+        assert_eq!(
+            fs::read_to_string(&theirs).unwrap(),
+            "another process, half written"
+        );
+        assert!(
+            read_string_value(&fs::read_to_string(&settings).unwrap(), WRAPPER_SETTING).is_some()
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
