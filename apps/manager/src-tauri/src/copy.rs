@@ -1,6 +1,9 @@
-//! Every string the shell itself shows (#166): the menu bar, the folder
-//! picker, startup failures and the launcher's prompt in Terminal. The
-//! webview's copy is `src/i18n.tsx`; this is the native side of the same rule.
+//! The prose the shell itself shows (#166): the menu bar, the folder
+//! picker's title, startup failures and the launcher's prompt in Terminal.
+//! Not here: `productName` and the window's initial `title` in
+//! `tauri.conf.json`, and anything macOS draws itself, such as the folder
+//! picker's buttons. The webview's prose is `src/i18n.tsx`; this is the
+//! native side of the same rule.
 //!
 //! `text` matches exhaustively over `(Text, Lang)`, as the CLI's `i18n.rs`
 //! does, and has no catch-all: a language added to `Lang` fails to compile
@@ -28,7 +31,8 @@ pub enum Text<'a> {
     Refresh,
     Quit,
     /// The 5-hour figure in an account's menu entry.
-    FiveHour(f64),
+    /// Already rounded by the caller, so every language shows one figure.
+    FiveHour(i64),
     Source(UsageSource),
     ChooseDirectory,
     NoHome,
@@ -51,7 +55,7 @@ pub fn text(t: Text, lang: Lang) -> String {
         (Text::ProjectBindings, Lang::En) => "Project bindings…".into(),
         (Text::Refresh, Lang::En) => "Refresh identity & usage".into(),
         (Text::Quit, Lang::En) => "Quit".into(),
-        (Text::FiveHour(percent), Lang::En) => format!("5h {percent:.0}%"),
+        (Text::FiveHour(percent), Lang::En) => format!("5h {percent}%"),
         (Text::Source(UsageSource::Live), Lang::En) => "live".into(),
         (Text::Source(UsageSource::Cached), Lang::En) => "cached".into(),
         (Text::Source(UsageSource::NoCredentials), Lang::En) => "no credentials".into(),
