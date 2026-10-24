@@ -40,6 +40,15 @@ pub async fn pin_account(
 }
 
 #[tauri::command]
+pub async fn clone_settings(app: AppHandle, account: String) -> Result<Vec<String>, AppError> {
+    blocking(app, move |app| {
+        let b = app.state::<Backend>();
+        Ok(gui::clone_settings(&b.config, &b.standard, &account)?)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn list_bindings(
     app: AppHandle,
     directory: Option<String>,

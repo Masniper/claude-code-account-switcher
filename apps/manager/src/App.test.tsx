@@ -20,6 +20,7 @@ vi.mock("./api", async (importOriginal) => ({
     setDefault: vi.fn(),
     removeAccount: vi.fn(),
     pinAccount: vi.fn(),
+    cloneSettings: vi.fn(),
     bindings: vi.fn(),
     bind: vi.fn(),
     sessions: vi.fn(),
@@ -198,6 +199,28 @@ describe("accounts", () => {
     expect((await within(dialog).findByRole("alert")).textContent).toContain(
       "never signed in",
     );
+  });
+
+  it("copies the standard settings into a managed account and lists what came over", async () => {
+    vi.mocked(api.cloneSettings).mockResolvedValue(["settings.json", "agents/"]);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    // The standard account is the source, so it is not offered.
+    expect(within(card("Standard account")).queryByText(/Copy settings/)).toBeNull();
+    fireEvent.click(within(card("work")).getByText("Copy settings from the standard account…"));
+    expect(api.cloneSettings).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Copy settings" }));
+    await waitFor(() => expect(api.cloneSettings).toHaveBeenCalledWith("work"));
+    expect(await screen.findByText("Copied settings.json and agents/ into work.")).toBeTruthy();
+  });
+
+  it("says so when cloning settings had nothing to copy", async () => {
+    vi.mocked(api.cloneSettings).mockResolvedValue([]);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("work")).getByText("Copy settings from the standard account…"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy settings" }));
+    expect(await screen.findByText(/^Nothing to copy: work already has these/)).toBeTruthy();
   });
 
   it("closes an account's action menu once used, or on a click elsewhere", async () => {

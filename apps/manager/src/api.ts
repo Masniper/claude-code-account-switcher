@@ -19,6 +19,7 @@ export const api = {
     invoke<Snapshot>("remove_account", { account }),
   pinAccount: (account: string, force: boolean) =>
     invoke<Snapshot>("pin_account", { account, force }),
+  cloneSettings: (account: string) => invoke<string[]>("clone_settings", { account }),
   bindings: (directory: string | null) =>
     invoke<Bindings>("list_bindings", { directory }),
   bind: (directory: string, account: string | null) =>

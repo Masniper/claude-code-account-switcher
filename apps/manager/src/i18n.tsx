@@ -120,6 +120,7 @@ const en = {
   makeDefaultAction: "Make default…",
   pinAction: "Pin identity…",
   repinAction: "Re-pin to signed-in identity…",
+  cloneSettingsAction: "Copy settings from the standard account…",
   trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
@@ -142,6 +143,19 @@ const en = {
       launching. Do it only if signing in as that identity was intended.
     </>
   ),
+  cloneSettingsTitle: (name: string) => `Copy settings into ${name}?`,
+  cloneSettingsConfirm: "Copy settings",
+  cloneSettingsBody: (name: ReactNode) => (
+    <>
+      Copy settings.json, CLAUDE.md, agents, commands, output styles, skills and
+      plugins from the standard account into {name}. A file or folder {name}
+      already has is kept, and plugins are copied only if it has none
+      installed. Sign-in, sessions and local settings are not copied.
+    </>
+  ),
+  cloneSettingsDone: (name: string, items: string) => `Copied ${items} into ${name}.`,
+  cloneSettingsNothing: (name: string) =>
+    `Nothing to copy: ${name} already has these, or the standard account has none of them.`,
   trashTitle: (name: string) => `Move ${name} to the Trash?`,
   trashConfirm: "Move to Trash",
   trashBody: (name: ReactNode) => (
@@ -398,6 +412,11 @@ export function kilobytes(t: Messages, bytes: number): string {
       maximumFractionDigits: 1,
     }),
   );
+}
+
+/** Items joined the table's way: "a, b, and c" in English. */
+export function list(t: Messages, items: string[]): string {
+  return new Intl.ListFormat(t.locale, { type: "conjunction" }).format(items);
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {

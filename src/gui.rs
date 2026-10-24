@@ -20,6 +20,8 @@
 //! - [`change_default`] and [`change_binding`]: validated writes.
 //! - [`remove_account`]: a managed account to the desktop trash, never
 //!   deleted outright.
+//! - [`clone_settings`]: seed a managed account with the standard
+//!   account's settings, as `claude-acc clone-settings` does.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` may start for an
@@ -50,7 +52,7 @@
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
 use crate::config::{AppConfig, validate_name};
-use crate::{identity, resolve, sessions, trash};
+use crate::{identity, resolve, seed, sessions, trash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -742,6 +744,74 @@ fn remove_account_with(
         .map_err(|_| GuiError::StorageWriteFailed)
 }
 
+/// Seed a managed account with the standard account's settings, memory,
+/// custom assets and plugins, through the CLI's own `seed`. A file or
+/// directory the account already has is kept; plugins are copied only into
+/// an account with none installed. Returns what was copied, a directory
+/// with a trailing `/`; empty when there was nothing to copy.
+///
+/// A link in the account is refused only where the seed would write through
+/// it; one it skips, such as a `skills/` linked to a shared copy, is fine.
+/// The source is the user's own `~/.claude`, read as `clone-settings` reads
+/// it: a file that is a link is followed, a link inside a directory is
+/// recreated.
+pub fn clone_settings(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+) -> Result<Vec<String>, GuiError> {
+    // Seeding the standard account from itself.
+    if name == "default" {
+        return Err(GuiError::InvalidAccount);
+    }
+    let dir = account_dir(config, standard, name)?;
+    for entry in seed::COPYABLE_FILES.iter().chain(seed::COPYABLE_DIRS) {
+        let path = dir.join(entry);
+        // Written only where the standard account has it and the account
+        // has nothing: there, a link leads nowhere and the copy would land
+        // wherever it points.
+        if standard.join(entry).exists() && !path.exists() {
+            reject_symlinks(&config.base_dir, &path)?;
+        }
+    }
+    // Plugins are copied, into an existing `plugins/` too, when the standard
+    // account has some and this one has none; then a link anywhere in it
+    // would be written through.
+    let plugins = dir.join("plugins");
+    if seed::has_plugins(&standard.join("plugins")) && !seed::has_plugins(&plugins) {
+        reject_symlinks_in(&config.base_dir, &plugins)?;
+    }
+    let report =
+        seed::copy_user_config_from(standard, &dir).map_err(|_| GuiError::StorageWriteFailed)?;
+    Ok(report
+        .copied
+        .iter()
+        .map(|c| match c.files {
+            None => c.name.to_string(),
+            Some(_) => format!("{}/", c.name),
+        })
+        .collect())
+}
+
+/// [`reject_symlinks`] for `dir` and everything below it. A missing `dir`
+/// has nothing below it.
+fn reject_symlinks_in(root: &Path, dir: &Path) -> Result<(), GuiError> {
+    reject_symlinks(root, dir)?;
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(GuiError::StorageUnreadable),
+    };
+    for entry in entries {
+        let path = entry.map_err(|_| GuiError::StorageUnreadable)?.path();
+        reject_symlinks(root, &path)?;
+        if path.is_dir() {
+            reject_symlinks_in(root, &path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Pin an account to the identity it is signed in as now, as `claude-acc
 /// lock` does. Pinning the identity it is already pinned to does nothing.
 /// A pin to someone else, or one that cannot be read, is replaced only with
@@ -1216,6 +1286,51 @@ mod tests {
     }
 
     #[test]
+    fn cloning_copies_the_standard_settings_and_keeps_the_accounts_own() {
+        let (c, root) = fixture("clone");
+        let standard = root.join("standard");
+        fs::create_dir_all(standard.join("agents")).unwrap();
+        fs::write(standard.join("settings.json"), "{}").unwrap();
+        fs::write(standard.join("CLAUDE.md"), "standard").unwrap();
+        fs::write(standard.join("agents").join("a.md"), "agent").unwrap();
+        let work = c.account_path("work");
+        fs::write(work.join("CLAUDE.md"), "work's own").unwrap();
+
+        assert_eq!(
+            clone_settings(&c, &standard, "work").unwrap(),
+            ["settings.json", "agents/"]
+        );
+        assert_eq!(
+            fs::read_to_string(work.join("CLAUDE.md")).unwrap(),
+            "work's own"
+        );
+        assert_eq!(
+            fs::read_to_string(work.join("agents/a.md")).unwrap(),
+            "agent"
+        );
+        // A second run has nothing left to copy, and says so by an empty list.
+        assert!(clone_settings(&c, &standard, "work").unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_an_existing_managed_account_is_seeded() {
+        let (c, root) = fixture("clone-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        fs::write(standard.join("settings.json"), "{}").unwrap();
+        for (name, error) in [
+            ("default", GuiError::InvalidAccount),
+            ("../work", GuiError::InvalidAccount),
+            ("ghost", GuiError::AccountMissing),
+        ] {
+            assert_eq!(clone_settings(&c, &standard, name), Err(error), "{name}");
+        }
+        assert!(!c.account_path("ghost").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -1546,6 +1661,68 @@ mod tests {
             Err(GuiError::SymlinkStorage)
         );
         assert!(!home_sidecar.join("subagents").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_seed_is_not_written_through_a_link_but_may_skip_one() {
+        let (c, root) = fixture("clone-symlink");
+        let standard = root.join("standard");
+        fs::create_dir_all(standard.join("skills")).unwrap();
+        fs::write(standard.join("settings.json"), "{}").unwrap();
+        fs::write(standard.join("skills").join("s.md"), "skill").unwrap();
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        let work = c.account_path("work");
+
+        // Points nowhere yet: the seed would create the file it points at.
+        std::os::unix::fs::symlink(outside.join("settings.json"), work.join("settings.json"))
+            .unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work"),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_file(work.join("settings.json")).unwrap();
+
+        // An empty plugin registry behind a link would be seeded through it.
+        fs::create_dir_all(standard.join("plugins")).unwrap();
+        fs::write(
+            standard.join("plugins/installed_plugins.json"),
+            r#"{"plugins":{"p@m":[{}]}}"#,
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(&outside, work.join("plugins")).unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work"),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_file(work.join("plugins")).unwrap();
+
+        // A working link the seed skips is the account's own business.
+        let shared = root.join("shared-skills");
+        fs::create_dir_all(&shared).unwrap();
+        std::os::unix::fs::symlink(&shared, work.join("skills")).unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work").unwrap(),
+            ["settings.json", "plugins/"]
+        );
+        assert_eq!(fs::read_dir(&shared).unwrap().count(), 0);
+
+        // Links where the standard account has nothing to copy are never
+        // written through, so they do not hold the rest back.
+        fs::remove_dir_all(standard.join("plugins")).unwrap();
+        fs::remove_dir_all(work.join("plugins")).unwrap();
+        fs::remove_file(work.join("settings.json")).unwrap();
+        std::os::unix::fs::symlink(&outside, work.join("plugins")).unwrap();
+        std::os::unix::fs::symlink(outside.join("CLAUDE.md"), work.join("CLAUDE.md")).unwrap();
+        assert_eq!(
+            clone_settings(&c, &standard, "work").unwrap(),
+            ["settings.json"]
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
         fs::remove_dir_all(root).unwrap();
     }
 

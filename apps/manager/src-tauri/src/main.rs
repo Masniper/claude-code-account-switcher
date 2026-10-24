@@ -21,6 +21,7 @@ fn main() {
             commands::set_default,
             commands::remove_account,
             commands::pin_account,
+            commands::clone_settings,
             commands::list_bindings,
             commands::set_binding,
             commands::list_sessions,

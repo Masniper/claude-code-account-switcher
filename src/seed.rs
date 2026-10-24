@@ -158,7 +158,7 @@ pub fn copy_plugins(source: &Path, target: &Path) -> std::io::Result<Option<usiz
 /// Whether a `plugins/` directory has anything installed. A directory Claude
 /// Code created but never filled has an empty `plugins` map, and counts as
 /// nothing installed.
-fn has_plugins(plugins_dir: &Path) -> bool {
+pub fn has_plugins(plugins_dir: &Path) -> bool {
     let Ok(raw) = fs::read_to_string(plugins_dir.join("installed_plugins.json")) else {
         return false;
     };

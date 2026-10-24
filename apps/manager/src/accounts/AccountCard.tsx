@@ -3,14 +3,14 @@ import { api } from "../api";
 import { Dialog, Icon, Meter } from "../components";
 import type { Account, Installation, LockStatus } from "../contract";
 import { freshness, usageLabel } from "../freshness";
-import { useCopy, type Messages } from "../i18n";
+import { list, useCopy, type Messages } from "../i18n";
 import { useLaunch, useNotices } from "../notices";
 
 const blocked = (lock: LockStatus) => lock === "drift" || lock === "corrupt";
 const title = (t: Messages, a: Account) =>
   a.name === "default" ? t.standardAccount : a.name;
 
-type Open = "details" | "login" | "default" | "remove" | "pin" | null;
+type Open = "details" | "login" | "default" | "remove" | "pin" | "clone" | null;
 
 export function AccountCard({
   account: a,
@@ -32,7 +32,7 @@ export function AccountCard({
   const [launching, setLaunching] = useState(false);
   const menu = useRef<HTMLDetailsElement>(null);
   const launch = useLaunch();
-  const { fail } = useNotices();
+  const { fail, info } = useNotices();
   const close = () => setOpen(null);
 
   // A <details> menu stays open until toggled again; close it the way a
@@ -131,6 +131,11 @@ export function AccountCard({
               </button>
             )}
             {a.name !== "default" && (
+              <button disabled={!a.available} onClick={() => setOpen("clone")}>
+                {t.cloneSettingsAction}
+              </button>
+            )}
+            {a.name !== "default" && (
               <button onClick={() => setOpen("remove")}>{t.trashAction}</button>
             )}
           </div>
@@ -169,6 +174,23 @@ export function AccountCard({
               ? t.repinBody(<strong>{a.name}</strong>)
               : t.pinBody(<strong>{a.name}</strong>)}
           </p>
+        </Dialog>
+      )}
+      {open === "clone" && (
+        <Dialog
+          title={t.cloneSettingsTitle(a.name)}
+          confirmLabel={t.cloneSettingsConfirm}
+          onConfirm={async () => {
+            const copied = await api.cloneSettings(a.name);
+            info(
+              copied.length
+                ? t.cloneSettingsDone(a.name, list(t, copied))
+                : t.cloneSettingsNothing(a.name),
+            );
+          }}
+          onClose={close}
+        >
+          <p>{t.cloneSettingsBody(<strong>{a.name}</strong>)}</p>
         </Dialog>
       )}
       {open === "remove" && (
