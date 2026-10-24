@@ -4,7 +4,7 @@
 
 An optional macOS app and menu bar item for this tool: accounts, their identity and usage, and per-directory bindings, in one window. It is built on the same Rust code as the CLI and lives in `apps/manager`, outside the root `cargo` build, so CLI-only users build and install nothing extra.
 
-Not to be confused with `claude-acc desktop`, which runs Claude Desktop profiles ([guide](../desktop.md)).
+The app is not Claude Desktop. Its Desktop page manages the same Claude Desktop profiles as `claude-acc desktop` ([guide](../desktop.md)).
 
 There is no published build: the manager is built from source, unsigned ([#165](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/165)).
 
@@ -64,7 +64,7 @@ The Manager workflow runs on every pull request, so it can be a required check. 
 
 ## How it fits together
 
-- **`claude_acc::gui`** (`src/gui.rs`) is the one part of the library the manager uses: typed, secret-free results and machine error codes, with binding resolution, writes and the launch rule all going through the CLI's own code. Its wire shape is pinned by `src/gui.contract.json`. See [the contract](contract.md).
+- **`claude_acc::gui`** (`src/gui.rs`) is what the manager uses the library through: typed, secret-free results and machine error codes, with binding resolution, writes and the launch rule all going through the CLI's own code. The shell also calls a few modules directly: `config` (`AppConfig`, `validate_name`), `identity`, and `desktop` (`standard_profile`, `running_instances`). Its wire shape is pinned by `src/gui.contract.json`. See [the contract](contract.md).
 - **The shell** (`apps/manager/src-tauri`) owns the account snapshot. It builds one at a time, numbers each one, and sends it to both the menu bar and the window, so neither depends on the other being open. A refresh that queued behind another reuses that result instead of repeating the network calls. Reads, writes and launches never wait for a refresh.
 - **The frontend** (`apps/manager/src`) reaches the shell only through `api.ts`, the one module that imports `@tauri-apps/*`, and a test enforces that. JavaScript has no filesystem, shell or HTTP access, and a content security policy limits it to bundled assets and IPC.
 - **Launching:** Terminal runs a `.command` file in a fresh login shell that inherits nothing from the app. The launcher is constant code that reads one private request file (0600, in a 0700 directory) as data. It exports the app's `HOME`, so the CLI resolves the same accounts the window showed. It drops `CLAUDE_SECURESTORAGE_CONFIG_DIR`. It deletes its request on start, which is how the app knows it ran. Paths, account names and translated text never become shell or AppleScript source.
