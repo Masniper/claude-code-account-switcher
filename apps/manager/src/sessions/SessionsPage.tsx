@@ -29,6 +29,7 @@ export function SessionsPage({ accounts }: { accounts: Account[] }) {
       <div className="banner">
         <span>{t.sessionsBanner}</span>
       </div>
+      <ResumeHook />
       {error != null && <Failure error={error} retry={load} />}
       {sessions == null ? (
         error == null && (
@@ -70,6 +71,42 @@ export function SessionsPage({ accounts }: { accounts: Account[] }) {
         />
       )}
     </>
+  );
+}
+
+/** The `claude` wrapper's `--resume` check, with its own load and errors. */
+function ResumeHook() {
+  const t = useCopy();
+  const [on, setOn] = useState<boolean | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [confirming, setConfirming] = useState(false);
+  const load = useCallback(() => {
+    setError(null);
+    api.resumeHook().then(setOn, setError);
+  }, []);
+  useEffect(load, [load]);
+  if (error != null) return <Failure error={error} retry={load} />;
+  if (on == null) return null;
+  return (
+    <div className="setting-row">
+      <div>
+        <strong>{t.resumeHookTitle}</strong>
+        <span>{on ? t.resumeHookOn : t.resumeHookOff}</span>
+      </div>
+      <button onClick={() => setConfirming(true)}>
+        {on ? t.resumeHookTurnOff : t.resumeHookTurnOn}
+      </button>
+      {confirming && (
+        <Dialog
+          title={on ? t.resumeHookOffTitle : t.resumeHookOnTitle}
+          confirmLabel={on ? t.resumeHookOffConfirm : t.resumeHookOnConfirm}
+          onConfirm={async () => setOn(await api.setResumeHook(!on))}
+          onClose={() => setConfirming(false)}
+        >
+          <p>{on ? t.resumeHookOffBody : t.resumeHookOnBody}</p>
+        </Dialog>
+      )}
+    </div>
   );
 }
 

@@ -26,6 +26,8 @@ vi.mock("./api", async (importOriginal) => ({
     bind: vi.fn(),
     sessions: vi.fn(),
     copySession: vi.fn(),
+    resumeHook: vi.fn(),
+    setResumeHook: vi.fn(),
     terminal: vi.fn(),
     installation: vi.fn(),
     chooseDirectory: vi.fn(),
@@ -56,6 +58,7 @@ beforeEach(() => {
   vi.mocked(api.snapshot).mockResolvedValue(snapshot());
   vi.mocked(api.bindings).mockResolvedValue({ bindings: [], selected: null });
   vi.mocked(api.sessions).mockResolvedValue([]);
+  vi.mocked(api.resumeHook).mockResolvedValue(true);
   vi.mocked(api.terminal).mockResolvedValue({ state: "started" });
   vi.mocked(api.installation).mockResolvedValue(sample.installation);
   HTMLDialogElement.prototype.showModal = function () {
@@ -541,6 +544,33 @@ describe("sessions", () => {
     vi.mocked(api.sessions).mockResolvedValue([sample.sessions[0]]);
     await openSessions();
     expect(copyButton().disabled).toBe(true);
+  });
+
+  it("turns the wrapper's resume check off after confirming, and shows what was stored", async () => {
+    vi.mocked(api.setResumeHook).mockResolvedValue(false);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: /Sessions/ }));
+    expect(await screen.findByText(/^On: claude --resume/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Turn off…" }));
+    expect(api.setResumeHook).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn off" }));
+    await waitFor(() => expect(api.setResumeHook).toHaveBeenCalledWith(false));
+    expect(await screen.findByText(/^Off: claude --resume/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Turn on…" })).toBeTruthy();
+  });
+
+  it("shows a stored off and turns it back on", async () => {
+    vi.mocked(api.resumeHook).mockResolvedValue(false);
+    vi.mocked(api.setResumeHook).mockResolvedValue(true);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: /Sessions/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Turn on" }));
+    await waitFor(() => expect(api.setResumeHook).toHaveBeenCalledWith(true));
+    expect(await screen.findByText(/^On: claude --resume/)).toBeTruthy();
   });
 
   it("retries failed discovery on the same page", async () => {

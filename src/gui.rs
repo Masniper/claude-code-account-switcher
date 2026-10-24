@@ -15,6 +15,8 @@
 //! - [`bindings`]: stored directory bindings, plus the effective account for
 //!   one directory and the binding it inherits from, via `resolve_account`.
 //! - [`sessions`]: session metadata, newest first.
+//! - [`resume_hook`] and [`set_resume_hook`]: the `claude` wrapper's
+//!   `--resume` check, as `claude-acc resume-hook` shows and sets it.
 //! - [`copy_session`]: one account's session copied into another, by the
 //!   same file copy as `claude-acc session copy`.
 //! - [`change_default`] and [`change_binding`]: validated writes.
@@ -696,6 +698,25 @@ pub fn copy_session(
     }
     sessions::copy_into(&src, &dest_dir)
         .map(|_| ())
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+/// Whether the generated `claude` wrapper checks a `--resume <id>` against
+/// the other accounts, as stored: what `claude-acc resume-hook` shows. The
+/// `CLAUDE_ACC_NO_RESUME_HOOK` override belongs to one terminal's
+/// environment, not to this process, so it is not consulted.
+pub fn resume_hook(config: &AppConfig) -> Result<bool, GuiError> {
+    reject_symlinks(&config.base_dir, &config.config_path())?;
+    check_readable(&config.config_path())?;
+    Ok(sessions::resume_hook_stored_on(config))
+}
+
+/// Store the wrapper's `--resume` check on or off, as `claude-acc
+/// resume-hook on|off` does.
+pub fn set_resume_hook(config: &AppConfig, on: bool) -> Result<(), GuiError> {
+    writable(config)?;
+    config
+        .set_setting(sessions::RESUME_HOOK_SETTING, if on { "on" } else { "off" })
         .map_err(|_| GuiError::StorageWriteFailed)
 }
 
@@ -1665,6 +1686,26 @@ mod tests {
         // A local read touches no credential store.
         assert_eq!(live_allowed(false, Some("/Users/x/.claude")), Ok(()));
         assert_eq!(live_allowed(false, None), Ok(()));
+    }
+
+    #[test]
+    fn the_resume_hook_is_stored_where_the_cli_reads_it() {
+        let (c, root) = fixture("resume-hook");
+        c.set_default("work").unwrap();
+        assert_eq!(resume_hook(&c), Ok(true));
+        set_resume_hook(&c, false).unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("off"));
+        assert_eq!(resume_hook(&c), Ok(false));
+        set_resume_hook(&c, true).unwrap();
+        assert_eq!(c.get_setting("resume_hook").as_deref(), Some("on"));
+        assert_eq!(resume_hook(&c), Ok(true));
+        // Other settings in the same file are left alone.
+        assert_eq!(c.get_default().unwrap().as_deref(), Some("work"));
+        fs::write(c.config_path(), [255, 254]).unwrap();
+        assert_eq!(resume_hook(&c), Err(GuiError::StorageUnreadable));
+        assert_eq!(set_resume_hook(&c, false), Err(GuiError::StorageUnreadable));
+        assert_eq!(fs::read(c.config_path()).unwrap(), vec![255, 254]);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

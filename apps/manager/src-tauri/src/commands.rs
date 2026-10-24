@@ -120,6 +120,25 @@ pub async fn copy_session(
 }
 
 #[tauri::command]
+pub async fn resume_hook(app: AppHandle) -> Result<bool, AppError> {
+    blocking(app, |app| {
+        Ok(gui::resume_hook(&app.state::<Backend>().config)?)
+    })
+    .await
+}
+
+/// Store the setting, then read it back, so the window shows what is stored.
+#[tauri::command]
+pub async fn set_resume_hook(app: AppHandle, on: bool) -> Result<bool, AppError> {
+    blocking(app, move |app| {
+        let config = &app.state::<Backend>().config;
+        gui::set_resume_hook(config, on)?;
+        Ok(gui::resume_hook(config)?)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn open_terminal(
     app: AppHandle,
     account: String,

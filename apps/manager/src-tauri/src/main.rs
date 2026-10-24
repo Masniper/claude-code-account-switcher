@@ -27,6 +27,8 @@ fn main() {
             commands::set_binding,
             commands::list_sessions,
             commands::copy_session,
+            commands::resume_hook,
+            commands::set_resume_hook,
             commands::open_terminal,
             commands::installation,
             commands::choose_directory,

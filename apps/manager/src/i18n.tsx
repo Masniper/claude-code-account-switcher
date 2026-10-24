@@ -306,6 +306,21 @@ const en = {
   modifiedUnknown: "Modified time unknown",
   sessionSize: (kilobytes: string) => `${kilobytes} KB`,
   copiesElsewhere: "Copies in multiple accounts",
+  resumeHookTitle: "Resume check in the claude wrapper (installed by claude-acc install)",
+  resumeHookOn:
+    "On: claude --resume <id> offers to copy a session that another account holds.",
+  resumeHookOff:
+    "Off: claude --resume <id> goes straight through. claude-acc run <account> --resume <id> still checks.",
+  resumeHookTurnOff: "Turn off…",
+  resumeHookTurnOn: "Turn on…",
+  resumeHookOffTitle: "Turn off the resume check?",
+  resumeHookOnTitle: "Turn on the resume check?",
+  resumeHookOffConfirm: "Turn off",
+  resumeHookOnConfirm: "Turn on",
+  resumeHookOffBody:
+    "claude --resume <id> will no longer look for the session in your other accounts. claude-acc run <account> --resume <id> keeps checking. It applies to the claude wrapper that claude-acc install puts on PATH; without it, claude runs Claude Code directly and nothing is checked. A terminal with CLAUDE_ACC_NO_RESUME_HOOK set to a value other than empty or 0 skips the check whatever is stored here.",
+  resumeHookOnBody:
+    "claude --resume <id> will look for the session in your other accounts first and offer to copy it, asking before anything is copied. It applies to the claude wrapper that claude-acc install puts on PATH; without it, claude runs Claude Code directly and nothing is checked. A terminal with CLAUDE_ACC_NO_RESUME_HOOK set to a value other than empty or 0 skips the check whatever is stored here.",
   copySessionAction: "Copy to…",
   copySessionAria: (id: string, account: string) =>
     `Copy session ${id} from ${account} to another account`,

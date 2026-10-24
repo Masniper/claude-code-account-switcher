@@ -27,6 +27,8 @@ export const api = {
   bind: (directory: string, account: string | null) =>
     invoke<void>("set_binding", { directory, account }),
   sessions: () => invoke<Session[]>("list_sessions"),
+  resumeHook: () => invoke<boolean>("resume_hook"),
+  setResumeHook: (on: boolean) => invoke<boolean>("set_resume_hook", { on }),
   copySession: (from: string, project: string, id: string, to: string, replace: boolean) =>
     invoke<Session[]>("copy_session", { from, project, id, to, replace }),
   terminal: (account: string, directory: string | null, action: LaunchAction) =>
