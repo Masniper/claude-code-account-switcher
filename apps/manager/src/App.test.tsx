@@ -19,6 +19,7 @@ vi.mock("./api", async (importOriginal) => ({
     snapshot: vi.fn(),
     setDefault: vi.fn(),
     removeAccount: vi.fn(),
+    importAccount: vi.fn(),
     pinAccount: vi.fn(),
     cloneSettings: vi.fn(),
     bindings: vi.fn(),
@@ -337,6 +338,58 @@ describe("accounts", () => {
       await waitFor(() => expect(api.terminal).toHaveBeenLastCalledWith("fresh", null, action));
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     }
+  });
+
+  const startImport = async (name: string) => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import an existing folder instead" }));
+    fireEvent.change(screen.getByPlaceholderText("e.g. work"), { target: { value: name } });
+  };
+
+  it("imports a copy of a chosen folder unless a move is asked for", async () => {
+    const imported = snapshot();
+    imported.revision = 9;
+    imported.accounts.push({ ...imported.accounts[1], name: "legacy", is_default: false });
+    vi.mocked(api.importAccount).mockResolvedValue(imported);
+    vi.mocked(api.chooseDirectory).mockResolvedValue("/Users/me/.claude-work");
+    await startImport("legacy");
+    fireEvent.click(screen.getByRole("button", { name: "Browse…" }));
+    await waitFor(() =>
+      expect((screen.getByPlaceholderText("~/.claude-work") as HTMLInputElement).value).toBe(
+        "/Users/me/.claude-work",
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const dialog = await screen.findByRole("dialog");
+    const move = within(dialog).getByRole("checkbox", { name: /Move the folder/ }) as HTMLInputElement;
+    expect(move.checked).toBe(false);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Import a copy" }));
+    await waitFor(() =>
+      expect(api.importAccount).toHaveBeenCalledWith("legacy", "/Users/me/.claude-work", false),
+    );
+    expect(await screen.findByText("legacy", { selector: "h3" })).toBeTruthy();
+    expect(screen.getByText(/^Imported legacy\./)).toBeTruthy();
+    expect(api.terminal).not.toHaveBeenCalled();
+  });
+
+  it("moves the folder only when the box is ticked, and shows a refusal", async () => {
+    vi.mocked(api.importAccount).mockRejectedValue("import_source_refused");
+    await startImport("legacy");
+    fireEvent.change(screen.getByPlaceholderText("~/.claude-work"), {
+      target: { value: "~/.claude-work" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /Move the folder/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Move and import" }));
+    await waitFor(() =>
+      expect(api.importAccount).toHaveBeenCalledWith("legacy", "~/.claude-work", true),
+    );
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "cannot be imported",
+    );
   });
 
   it("explains a fresh installation without fabricating an account", async () => {

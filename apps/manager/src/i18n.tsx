@@ -216,6 +216,24 @@ const en = {
   addConfirm: "Create & authenticate",
   addBody:
     "Create an isolated account using the CLI and open its login flow in Terminal. Conversations are not copied.",
+  importInstead: "Import an existing folder instead",
+  createInstead: "Create a new account instead",
+  importSourceLabel: "Existing config folder",
+  importSourcePlaceholder: "~/.claude-work",
+  importTitle: (name: string) => `Import as ${name}?`,
+  importBody: (source: ReactNode, name: ReactNode) => (
+    <>
+      {source} becomes the managed account {name}, with its settings, sessions
+      and sign-in, without signing in again. On macOS, a Keychain sign-in found
+      for the folder is copied to the new location.
+    </>
+  ),
+  importMoveLabel:
+    "Move the folder instead of copying it. The original location will no longer exist.",
+  importCopyConfirm: "Import a copy",
+  importMoveConfirm: "Move and import",
+  importDone: (name: string) =>
+    `Imported ${name}. Refresh status to check that it is still signed in; if it is not, use Authenticate from its menu.`,
   addSeedLabel:
     "Start with the standard account's settings.json, CLAUDE.md, agents, commands, output styles, skills and plugins",
 
@@ -311,6 +329,8 @@ const en = {
 
   // Backend results
   errors: {
+    import_source_refused:
+      "This folder cannot be imported: it is already a managed account, is a link or keeps its sign-in files as links, holds Claude Accounts' own storage, or, for a move, holds the standard ~/.claude account.",
     session_missing:
       "This session is no longer in that account, so nothing was copied. The list has been reloaded.",
     session_exists:
@@ -330,7 +350,7 @@ const en = {
     invalid_directory:
       "Choose an absolute directory path without control characters or surrounding whitespace.",
     unrepresentable_directory:
-      "The CLI binding format cannot represent this path. Avoid equals signs and parent-directory segments.",
+      "This path cannot be used as written. Remove parent-directory (..) segments; a folder binding also cannot contain an equals sign.",
     directory_missing: "This directory no longer exists. Choose another folder.",
     symlink_storage:
       "Symlinked account storage is not supported for safety. Use the CLI to inspect this configuration.",

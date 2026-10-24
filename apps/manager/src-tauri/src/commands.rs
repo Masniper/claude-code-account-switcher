@@ -31,6 +31,19 @@ pub async fn remove_account(app: AppHandle, account: String) -> Result<Revisione
 }
 
 #[tauri::command]
+pub async fn import_account(
+    app: AppHandle,
+    account: String,
+    source: String,
+    move_into: bool,
+) -> Result<Revisioned, AppError> {
+    blocking(app, move |app| {
+        backend::import_account(app, &account, &source, move_into)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn pin_account(
     app: AppHandle,
     account: String,

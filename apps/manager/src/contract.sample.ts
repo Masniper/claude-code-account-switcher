@@ -115,6 +115,7 @@ export const sample: {
     "not_signed_in",
     "session_missing",
     "session_exists",
+    "import_source_refused",
   ],
   manager_errors: [
     "cli_missing",

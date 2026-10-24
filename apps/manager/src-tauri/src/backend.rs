@@ -3,7 +3,7 @@
 //! tray and the webview the same way — so neither depends on the other being
 //! open, and a stale build can never overwrite a newer one.
 use crate::launcher::{self, Installation};
-use claude_acc::config::AppConfig;
+use claude_acc::config::{AppConfig, validate_name};
 use claude_acc::gui::{self, GuiError, Snapshot};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -140,17 +140,25 @@ impl Backend {
 
     /// The default, the account list and every pin state are read from disk
     /// at every commit: a build that started before a default change, a
-    /// removal or a pin must not put the old value back.
+    /// removal, an import or a pin must not put the old value back. An
+    /// account that appeared since gets a row from local records.
     fn stamp(&self, latest: &mut Option<Latest>, mut next: Latest) -> Revisioned {
+        let accounts = &mut next.snapshot.snapshot.accounts;
+        accounts.retain(|a| a.name == "default" || self.config.account_path(&a.name).is_dir());
+        for name in self.config.list_accounts().unwrap_or_default() {
+            if validate_name(&name) && name != "default" && !accounts.iter().any(|a| a.name == name)
+            {
+                accounts.push(gui::local_account(&self.config, &self.standard, &name));
+            }
+        }
+        // The standard account first, then managed ones by name.
+        accounts
+            .sort_by(|a, b| (a.name != "default", &a.name).cmp(&(b.name != "default", &b.name)));
         if let Ok(default) = self.config.get_default() {
             next.snapshot
                 .snapshot
                 .mark_default(default.as_deref().unwrap_or("default"));
         }
-        next.snapshot
-            .snapshot
-            .accounts
-            .retain(|a| a.name == "default" || self.config.account_path(&a.name).is_dir());
         for a in &mut next.snapshot.snapshot.accounts {
             a.lock = gui::lock_of(&self.config, &self.standard, &a.name);
         }
@@ -198,6 +206,29 @@ pub fn set_default(app: &AppHandle, account: &str) -> Result<Revisioned, AppErro
 pub fn remove_account(app: &AppHandle, account: &str) -> Result<Revisioned, AppError> {
     let backend = app.state::<Backend>();
     gui::remove_account(&backend.config, &backend.standard, account)?;
+    match backend.commit_change() {
+        Some(snapshot) => {
+            publish(app, &snapshot);
+            Ok(snapshot)
+        }
+        None => refresh(app, false),
+    }
+}
+
+pub fn import_account(
+    app: &AppHandle,
+    account: &str,
+    source: &str,
+    move_into: bool,
+) -> Result<Revisioned, AppError> {
+    let backend = app.state::<Backend>();
+    gui::import_account(
+        &backend.config,
+        &backend.standard,
+        account,
+        source,
+        move_into,
+    )?;
     match backend.commit_change() {
         Some(snapshot) => {
             publish(app, &snapshot);
@@ -279,6 +310,39 @@ mod tests {
             .map(|a| a.name)
             .collect();
         assert_eq!(names, ["default", "work"]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_build_from_before_an_import_gains_the_new_account_in_order() {
+        let root = std::env::temp_dir().join(format!("cc-mgr-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = AppConfig {
+            base_dir: root.join("switch"),
+        };
+        config.init().unwrap();
+        std::fs::create_dir_all(config.account_path("work")).unwrap();
+        let backend = Backend::new(config, root.join("standard"));
+        let built = gui::snapshot(&backend.config, &backend.standard, false).unwrap();
+        // Imported after the build: one sorts before "work", one after.
+        for name in ["alpha", "zulu"] {
+            std::fs::create_dir_all(backend.config.account_path(name)).unwrap();
+        }
+        backend.config.set_default("zulu").unwrap();
+        let accounts = backend.commit_build(built, false).snapshot.accounts;
+        let rows: Vec<_> = accounts
+            .iter()
+            .map(|a| (a.name.as_str(), a.is_default))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("default", false),
+                ("alpha", false),
+                ("work", false),
+                ("zulu", true)
+            ]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

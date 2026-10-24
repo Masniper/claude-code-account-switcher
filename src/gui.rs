@@ -22,6 +22,8 @@
 //!   deleted outright.
 //! - [`clone_settings`]: seed a managed account with the standard
 //!   account's settings, as `claude-acc clone-settings` does.
+//! - [`import_account`]: adopt an existing config dir as a managed
+//!   account, by the rules of `claude-acc import`.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -53,6 +55,7 @@
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
 use crate::config::{AppConfig, validate_name};
+use crate::import::{self, Refusal};
 use crate::{identity, resolve, seed, sessions, trash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -80,6 +83,7 @@ pub enum GuiError {
     NotSignedIn,
     SessionMissing,
     SessionExists,
+    ImportSourceRefused,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -292,6 +296,15 @@ fn storage_root<'a>(config: &'a AppConfig, standard: &'a Path, name: &str) -> &'
     }
 }
 
+/// Files in an account directory that hold credentials or identity, refused
+/// as links. The identity record is checked separately: for the standard
+/// account it lives outside the directory.
+const GUARDED_FILES: [&str; 3] = [
+    ".credentials.json",
+    ".account-info.json",
+    identity::LOCK_FILE,
+];
+
 /// An existing account directory whose storage is safe to read secrets from.
 fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBuf, GuiError> {
     if !validate_name(name) {
@@ -303,11 +316,7 @@ fn account_dir(config: &AppConfig, standard: &Path, name: &str) -> Result<PathBu
     }
     let root = storage_root(config, standard, name);
     reject_symlinks(root, &path)?;
-    for file in [
-        ".credentials.json",
-        ".account-info.json",
-        identity::LOCK_FILE,
-    ] {
+    for file in GUARDED_FILES {
         reject_symlinks(root, &path.join(file))?;
     }
     if let Some(local) = identity::local_identity_path(&path) {
@@ -509,6 +518,14 @@ fn account(
     }
     row.usage = usage(identity::fetch_account_usage(&path), now);
     row
+}
+
+/// One account's row from local records only, as a non-live [`snapshot`]
+/// builds it. For a consumer that keeps a snapshot and must show an account
+/// that appeared after it was built.
+pub fn local_account(config: &AppConfig, standard: &Path, name: &str) -> Account {
+    // `is_default` is the consumer's to mark, as for any kept snapshot.
+    account(config, standard, name, "", false, now())
 }
 
 /// Every account, the standard one first. `live` asks the profile and usage
@@ -818,6 +835,91 @@ fn reject_symlinks_in(root: &Path, dir: &Path) -> Result<(), GuiError> {
             reject_symlinks_in(root, &path)?;
         }
     }
+    Ok(())
+}
+
+/// Adopt an existing Claude Code config dir as managed account `name`, as
+/// `claude-acc import` does: copied, or moved with `move_into`, then its
+/// Keychain entry copied to the new location so the sign-in comes along.
+/// `source` is absolute, or starts with `~/` for the home directory this
+/// app resolved `standard` under.
+///
+/// The CLI's refusals apply. Beyond them, the window refuses with
+/// `import_source_refused` a source that is itself a link or holds its
+/// credential or identity files as links (the account would be refused
+/// everywhere else here), one that holds the `accounts/`
+/// directory (copying it would copy into itself), and moving anything that
+/// holds the standard `~/.claude`, which is not ours to take away.
+pub fn import_account(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    source: &str,
+    move_into: bool,
+) -> Result<(), GuiError> {
+    import_account_with(config, standard, name, source, move_into, |from, to| {
+        // Best effort, as in the CLI: a refresh shows whether the sign-in
+        // came along.
+        let _ = identity::copy_keychain_entry(from, to);
+    })
+}
+
+fn import_account_with(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    source: &str,
+    move_into: bool,
+    rekey: impl FnOnce(&Path, &Path),
+) -> Result<(), GuiError> {
+    let src = match source.strip_prefix("~/") {
+        Some(rest) => {
+            let home = standard.parent().ok_or(GuiError::DirectoryMissing)?;
+            let joined = home.join(rest);
+            project_path(joined.to_str().ok_or(GuiError::InvalidDirectory)?, false)?
+        }
+        None => project_path(source, false)?,
+    };
+    match import::refusal(config, name, &src) {
+        None => (),
+        Some(Refusal::Reserved | Refusal::InvalidName) => return Err(GuiError::InvalidAccount),
+        Some(Refusal::SourceNotDir) => return Err(GuiError::DirectoryMissing),
+        Some(Refusal::Exists) => return Err(GuiError::AccountExists),
+        Some(Refusal::SourceManaged) => return Err(GuiError::ImportSourceRefused),
+    }
+    let is_link = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink());
+    // Imported as they are, these links would make an account that
+    // `account_dir` refuses, and so one the window could not use or remove.
+    let links = is_link(&src)
+        || GUARDED_FILES
+            .iter()
+            .chain([&".claude.json"])
+            .any(|f| is_link(&src.join(f)));
+    // Before the comparison below: it creates the switch directory, which a
+    // path that does not exist yet could not be resolved against.
+    writable(config)?;
+    // Containment is decided on physical paths, so a second spelling of the
+    // same directory cannot slip past it. The path as given is what is
+    // copied and re-keyed, as the CLI does: the Keychain entry is named
+    // after it.
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let real_src = real(&src);
+    if links
+        || real(&config.accounts_dir()).starts_with(&real_src)
+        || real_src.starts_with(real(&config.accounts_dir()))
+        || (move_into && real(standard).starts_with(&real_src))
+    {
+        return Err(GuiError::ImportSourceRefused);
+    }
+    let target = config.account_path(name);
+    reject_symlinks(&config.base_dir, &target)?;
+    if move_into {
+        fs::rename(&src, &target).map_err(|_| GuiError::StorageWriteFailed)?;
+    } else if import::copy_tree(&src, &target).is_err() {
+        let _ = fs::remove_dir_all(&target);
+        return Err(GuiError::StorageWriteFailed);
+    }
+    rekey(&src, &target);
     Ok(())
 }
 
@@ -1339,6 +1441,134 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// A config dir worth importing, at `home/<dir>`.
+    fn config_dir(root: &Path, dir: &str) -> PathBuf {
+        let path = root.join("home").join(dir);
+        fs::create_dir_all(path.join("agents")).unwrap();
+        fs::write(path.join("settings.json"), "{}").unwrap();
+        fs::write(path.join("agents/a.md"), "agent").unwrap();
+        path
+    }
+
+    #[test]
+    fn an_import_copies_or_moves_and_carries_the_sign_in_from_the_path_given() {
+        let (c, root) = fixture("import");
+        let standard = root.join("home").join(".claude");
+        let src = config_dir(&root, ".claude-work");
+        let mut seen = None;
+        import_account_with(
+            &c,
+            &standard,
+            "copied",
+            src.to_str().unwrap(),
+            false,
+            |f, t| seen = Some((f.to_path_buf(), t.to_path_buf())),
+        )
+        .unwrap();
+        let copied = c.account_path("copied");
+        assert_eq!(
+            fs::read_to_string(copied.join("agents/a.md")).unwrap(),
+            "agent"
+        );
+        assert!(
+            src.join("settings.json").is_file(),
+            "a copy leaves the source"
+        );
+        assert_eq!(seen, Some((src.clone(), copied)));
+
+        // `~/` is the home this app resolved the standard account under.
+        import_account_with(&c, &standard, "moved", "~/.claude-work", true, |_, _| ()).unwrap();
+        assert!(c.account_path("moved").join("settings.json").is_file());
+        assert!(!src.exists(), "a move takes the source away");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn an_import_that_would_lose_or_loop_data_is_refused_before_anything_moves() {
+        let (c, root) = fixture("import-refused");
+        let standard = config_dir(&root, ".claude");
+        let src = config_dir(&root, ".claude-work");
+        let import = |name: &str, source: &Path, move_into| {
+            import_account_with(
+                &c,
+                &standard,
+                name,
+                source.to_str().unwrap(),
+                move_into,
+                |_, _| panic!("re-keyed"),
+            )
+        };
+        for (name, source, move_into, error) in [
+            ("default", &src, false, GuiError::InvalidAccount),
+            ("a b", &src, false, GuiError::InvalidAccount),
+            (
+                "fresh",
+                &root.join("missing"),
+                false,
+                GuiError::DirectoryMissing,
+            ),
+            ("work", &src, false, GuiError::AccountExists),
+            // Already ours; and a source holding our storage would be copied
+            // into itself.
+            (
+                "fresh",
+                &c.account_path("work"),
+                true,
+                GuiError::ImportSourceRefused,
+            ),
+            ("fresh", &root, false, GuiError::ImportSourceRefused),
+            ("fresh", &c.base_dir, false, GuiError::ImportSourceRefused),
+            // Moving the standard account, or a folder holding it, away.
+            ("fresh", &standard, true, GuiError::ImportSourceRefused),
+            (
+                "fresh",
+                &root.join("home"),
+                true,
+                GuiError::ImportSourceRefused,
+            ),
+        ] {
+            assert_eq!(
+                import(name, source, move_into),
+                Err(error),
+                "{name} {source:?}"
+            );
+        }
+        assert_eq!(
+            import_account_with(&c, &standard, "fresh", "relative/dir", false, |_, _| ()),
+            Err(GuiError::InvalidDirectory)
+        );
+        assert!(!c.account_path("fresh").exists());
+        assert!(standard.join("settings.json").is_file());
+        assert!(c.account_path("work").is_dir());
+        // Copying the standard account is how the CLI imports it, too.
+        import_account_with(
+            &c,
+            &standard,
+            "fresh",
+            standard.to_str().unwrap(),
+            false,
+            |_, _| (),
+        )
+        .unwrap();
+        assert!(standard.join("settings.json").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_local_row_is_built_for_an_account_added_after_a_snapshot() {
+        let (c, root) = fixture("local-row");
+        let row = local_account(&c, &root.join("standard"), "work");
+        let built = snapshot(&c, &root.join("standard"), false).unwrap();
+        assert_eq!(
+            row,
+            Account {
+                is_default: false,
+                ..built.accounts[1].clone()
+            }
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
@@ -1550,6 +1780,7 @@ mod tests {
             GuiError::NotSignedIn,
             GuiError::SessionMissing,
             GuiError::SessionExists,
+            GuiError::ImportSourceRefused,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -1748,6 +1979,93 @@ mod tests {
             ["settings.json"]
         );
         assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_import_of_a_link_or_through_a_second_spelling_is_refused() {
+        let (c, root) = fixture("import-link");
+        let standard = root.join("home").join(".claude");
+        let src = config_dir(&root, ".claude-work");
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&src, &alias).unwrap();
+        let import = |source: &Path, move_into| {
+            import_account_with(
+                &c,
+                &standard,
+                "fresh",
+                source.to_str().unwrap(),
+                move_into,
+                |_, _| (),
+            )
+        };
+        // Moved or copied as a link, the account would be a link.
+        assert_eq!(import(&alias, true), Err(GuiError::ImportSourceRefused));
+        assert_eq!(import(&alias, false), Err(GuiError::ImportSourceRefused));
+        assert!(alias.is_symlink() && src.is_dir());
+        // The switch directory reached by another name is still ours.
+        let switch_alias = root.join("switch-alias");
+        std::os::unix::fs::symlink(&c.base_dir, &switch_alias).unwrap();
+        assert_eq!(
+            import(&switch_alias.join("accounts").join("work"), false),
+            Err(GuiError::ImportSourceRefused)
+        );
+        assert!(!c.account_path("fresh").exists());
+
+        // A credential or identity file held as a link would make an account
+        // every other function here refuses.
+        fs::write(root.join("dotfiles.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(root.join("dotfiles.json"), src.join(".claude.json")).unwrap();
+        assert_eq!(import(&src, false), Err(GuiError::ImportSourceRefused));
+        fs::remove_file(src.join(".claude.json")).unwrap();
+
+        // A link above the source is how the user spelled it, and the
+        // Keychain entry is named after that spelling, as in the CLI.
+        let home_alias = root.join("home-alias");
+        std::os::unix::fs::symlink(root.join("home"), &home_alias).unwrap();
+        let spelled = home_alias.join(".claude-work");
+        let mut seen = None;
+        import_account_with(
+            &c,
+            &standard,
+            "fresh",
+            spelled.to_str().unwrap(),
+            false,
+            |f, _| seen = Some(f.to_path_buf()),
+        )
+        .unwrap();
+        assert_eq!(seen, Some(spelled));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_first_import_of_the_home_folder_is_refused_through_a_linked_home() {
+        // Regression: before the switch directory existed it could not be
+        // resolved, so a home reached through a link was not seen to hold
+        // it, and a copy recursed into itself.
+        let (_, root) = fixture("import-first-run");
+        let real_home = root.join("real-home");
+        fs::create_dir_all(real_home.join(".claude")).unwrap();
+        let home = root.join("home");
+        std::os::unix::fs::symlink(&real_home, &home).unwrap();
+        let c = AppConfig {
+            base_dir: home.join(".claude-switch"),
+        };
+        assert!(!c.base_dir.exists());
+        assert_eq!(
+            import_account_with(
+                &c,
+                &home.join(".claude"),
+                "fresh",
+                real_home.to_str().unwrap(),
+                false,
+                |_, _| ()
+            ),
+            Err(GuiError::ImportSourceRefused)
+        );
+        assert!(!c.account_path("fresh").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

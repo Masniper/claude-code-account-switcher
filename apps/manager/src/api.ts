@@ -17,6 +17,8 @@ export const api = {
   setDefault: (account: string) => invoke<Snapshot>("set_default", { account }),
   removeAccount: (account: string) =>
     invoke<Snapshot>("remove_account", { account }),
+  importAccount: (account: string, source: string, moveInto: boolean) =>
+    invoke<Snapshot>("import_account", { account, source, moveInto }),
   pinAccount: (account: string, force: boolean) =>
     invoke<Snapshot>("pin_account", { account, force }),
   cloneSettings: (account: string) => invoke<string[]>("clone_settings", { account }),

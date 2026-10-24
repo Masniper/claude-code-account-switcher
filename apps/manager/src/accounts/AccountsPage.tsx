@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
+import { api } from "../api";
 import { Dialog, Empty, Failure, Icon } from "../components";
 import { formatAge } from "../freshness";
 import { useNow } from "../hooks";
 import { useCopy } from "../i18n";
-import { useLaunch } from "../notices";
+import { useLaunch, useNotices } from "../notices";
 import type { SnapshotState } from "../useSnapshot";
 import { AccountCard } from "./AccountCard";
 
@@ -30,7 +31,9 @@ export function AccountsPage({
 
   return (
     <>
-      {adding && <AddAccount onDone={() => setAdding(false)} />}
+      {adding && (
+        <AddAccount importAccount={state.importAccount} onDone={() => setAdding(false)} />
+      )}
       {error != null && <Failure error={error} retry={() => void refresh(false)} />}
       <div className="summary">
         <div>
@@ -103,13 +106,27 @@ export function AccountsPage({
   );
 }
 
-function AddAccount({ onDone }: { onDone: () => void }) {
+function AddAccount({
+  importAccount,
+  onDone,
+}: {
+  importAccount: SnapshotState["importAccount"];
+  onDone: () => void;
+}) {
   const t = useCopy();
   const [name, setName] = useState("");
   const [invalid, setInvalid] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [seed, setSeed] = useState(false);
+  // `null` creates a new account; a string imports that folder.
+  const [source, setSource] = useState<string | null>(null);
+  const [moveInto, setMoveInto] = useState(false);
   const launch = useLaunch();
+  const { info } = useNotices();
+  const browse = async () => {
+    const chosen = await api.chooseDirectory();
+    if (chosen != null) setSource(chosen);
+  };
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const ok = NAME.test(name) && name !== "default";
@@ -130,11 +147,34 @@ function AddAccount({ onDone }: { onDone: () => void }) {
             required
           />
         </label>
+        {source != null && (
+          <label>
+            {t.importSourceLabel}
+            <input
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder={t.importSourcePlaceholder}
+              required
+            />
+          </label>
+        )}
+        {source != null && (
+          <button type="button" onClick={() => void browse()}>
+            {t.browse}
+          </button>
+        )}
         <button className="primary" type="submit">
           {t.continue}
         </button>
         <button type="button" onClick={onDone}>
           {t.cancel}
+        </button>
+        <button
+          type="button"
+          className="quiet"
+          onClick={() => setSource(source == null ? "" : null)}
+        >
+          {source == null ? t.importInstead : t.createInstead}
         </button>
         {invalid && (
           <p className="field-error" role="alert">
@@ -142,7 +182,29 @@ function AddAccount({ onDone }: { onDone: () => void }) {
           </p>
         )}
       </form>
-      {confirming && (
+      {confirming && source != null && (
+        <Dialog
+          title={t.importTitle(name)}
+          confirmLabel={moveInto ? t.importMoveConfirm : t.importCopyConfirm}
+          onConfirm={async () => {
+            await importAccount(name, source, moveInto);
+            info(t.importDone(name));
+            onDone();
+          }}
+          onClose={() => setConfirming(false)}
+        >
+          <p>{t.importBody(<strong>{source}</strong>, <strong>{name}</strong>)}</p>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={moveInto}
+              onChange={(e) => setMoveInto(e.target.checked)}
+            />
+            {t.importMoveLabel}
+          </label>
+        </Dialog>
+      )}
+      {confirming && source == null && (
         <Dialog
           title={t.addTitle(name)}
           confirmLabel={t.addConfirm}

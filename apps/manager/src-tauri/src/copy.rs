@@ -56,7 +56,7 @@ pub fn text(t: Text, lang: Lang) -> String {
         (Text::Source(UsageSource::Cached), Lang::En) => "cached".into(),
         (Text::Source(UsageSource::NoCredentials), Lang::En) => "no credentials".into(),
         (Text::Source(UsageSource::Unavailable), Lang::En) => "no reading".into(),
-        (Text::ChooseDirectory, Lang::En) => "Choose project directory".into(),
+        (Text::ChooseDirectory, Lang::En) => "Choose a folder".into(),
         (Text::NoHome, Lang::En) => "Claude Accounts cannot find your home directory, so it has \
              no account configuration to read. Check that HOME is set."
             .into(),
