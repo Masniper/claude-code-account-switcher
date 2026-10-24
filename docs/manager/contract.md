@@ -30,12 +30,13 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 - `set_binding(directory, account?)` saves a binding, or with a null account removes the exact stored one, even for a missing directory. "default" means the standard account, not the configured named default.
 - `choose_directory()` opens the system folder picker.
 - `list_sessions()` returns metadata (`id`, `account`, `project`, `modified`, `size`, `duplicate`), newest first. No transcript paths or content.
+- `copy_session(from, project, id, to, replace)` copies the session `list_sessions` listed under `from` and `project` into `to`, through the CLI's own `sessions::copy_into`, and returns the session list again. The source is looked up in a listing, never joined from the arguments; one that is no longer there gets `session_missing`. If `to` already holds that id, in any project, the reply is `session_exists` unless `replace` is set. Copying an account onto itself is `invalid_account`.
 - `open_terminal(account, directory?, action)` takes `run`, `login` or `add`. `gui::check_launch` decides whether the action may run: a valid name, safe existing storage (a free name for `add`), and for `run` no drifted or unreadable pin. The reply is `{state}`: `started` once Terminal ran the launcher, or `pending` if it had not within ten seconds. Neither means Claude Code signed in.
 - `installation()` returns `bundled_version`, `bundled_available` and the nullable version of a separately installed CLI. Both are read by running the binaries, when Details first opens and again after a live refresh.
 
 ## Errors
 
-Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.
+Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`, `session_missing`, `session_exists`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.
 
 ## Never sent
 

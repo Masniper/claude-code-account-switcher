@@ -30,12 +30,13 @@
 - `set_binding(directory, account?)` сохраняет привязку, а при null account удаляет точную сохранённую запись, даже для отсутствующей директории. «default» означает стандартный аккаунт, а не настроенный именованный default.
 - `choose_directory()` открывает системный выбор папки.
 - `list_sessions()` возвращает метаданные (`id`, `account`, `project`, `modified`, `size`, `duplicate`), новые первыми. Без путей и содержимого transcript.
+- `copy_session(from, project, id, to, replace)` копирует сессию, которую `list_sessions` показал под `from` и `project`, в `to` через собственный `sessions::copy_into` CLI и снова возвращает список сессий. Источник ищется в списке, а не склеивается из аргументов; если его уже нет, ответ — `session_missing`. Если в `to` уже есть этот id, в любом проекте, ответ — `session_exists`, если не задан `replace`. Копирование аккаунта в самого себя — `invalid_account`.
 - `open_terminal(account, directory?, action)` принимает `run`, `login` или `add`. `gui::check_launch` решает, можно ли выполнить действие: корректное имя, безопасное существующее хранилище (для `add` — свободное имя) и, для `run`, отсутствие расходящегося или нечитаемого pin. Ответ — `{state}`: `started`, когда Terminal выполнил скрипт запуска, или `pending`, если не выполнил за десять секунд. Ни то, ни другое не означает, что Claude Code вошёл в аккаунт.
 - `installation()` возвращает `bundled_version`, `bundled_available` и nullable версию отдельно установленного CLI. Обе считываются запуском бинарников — при первом открытии Details и снова после live-обновления.
 
 ## Ошибки
 
-Каждый сбой — машинный код, который окно переводит в текст: коды библиотеки (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`) и оболочки (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). Код не несёт путей, вывода процессов и учётных данных. У каждого кода есть текст на каждом языке, и нет текста для кода, который нельзя отправить; `copy.test.ts` проверяет оба направления.
+Каждый сбой — машинный код, который окно переводит в текст: коды библиотеки (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`, `session_missing`, `session_exists`) и оболочки (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). Код не несёт путей, вывода процессов и учётных данных. У каждого кода есть текст на каждом языке, и нет текста для кода, который нельзя отправить; `copy.test.ts` проверяет оба направления.
 
 ## Никогда не отправляется
 

@@ -20,7 +20,7 @@ Claude Code must already be installed and on `PATH` in your Terminal login envir
 6. **Pin identity:** an unpinned account can be pinned to the identity it is signed in as, as `claude-acc lock` does. When the pin and the signed-in identity differ, or the pin cannot be read, launching is blocked and the menu offers to re-pin to the identity signed in now; that is the only way the app replaces a pin.
 7. **Move to Trash:** a managed account's directory goes to the Trash, and its bindings go with it; if it was the default, the standard account becomes the default. The standard account cannot be removed. If the Trash refuses the move, nothing changes; deleting outright stays `claude-acc remove --purge`.
 8. **Projects:** pick or type a folder to see its effective account and the binding it inherits from, then save or remove a binding. The closest binding wins. A binding whose folder no longer exists can still be removed.
-9. **Sessions:** session metadata across accounts, newest first. Copying and resuming stay in the CLI ([sessions guide](../sessions.md)).
+9. **Sessions:** session metadata across accounts, newest first. **Copy to…** copies one session, with its subagent transcripts, into another account, as `claude-acc session copy` does; the original stays. If the destination already has that session, the dialog says so and the button replaces it. Resuming stays in Terminal ([sessions guide](../sessions.md)).
 
 Closing the window keeps the menu bar item running. From it you can launch an account in your home directory, open Projects, refresh, or quit, and all of that works with the window closed. Shortcuts: ⌘1/2/3 switch pages, ⌘N adds an account, ⌘R refreshes.
 
