@@ -7,6 +7,7 @@ import type {
   Bindings,
   DesktopAction,
   DesktopProfiles,
+  DesktopUsage,
   Editor,
   Installation,
   RuntimeCloned,
@@ -50,6 +51,7 @@ export const api = {
     invoke<void>("desktop_clone_config", { account, from, force }),
   desktopCloneRuntime: (account: string, from: string | null, force: boolean) =>
     invoke<RuntimeCloned>("desktop_clone_runtime", { account, from, force }),
+  desktopUsage: (account: string) => invoke<DesktopUsage>("desktop_usage", { account }),
   desktopRemove: (account: string) => invoke<DesktopProfiles>("desktop_remove", { account }),
   installation: () => invoke<Installation>("installation"),
   checkUpdate: () => invoke<UpdateCheck>("check_update"),

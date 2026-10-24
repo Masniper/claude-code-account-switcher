@@ -377,6 +377,12 @@ const en = {
   ),
   desktopAdded: (name: string) => `Added ${name} and opened Claude Desktop on it. Sign in there.`,
   desktopOpened: (name: string) => `Opened Claude Desktop on ${name}.`,
+  desktopUsageAction: "Usage…",
+  desktopUsageUnavailable: "The usage API did not answer. Use Usage… again to retry.",
+  desktopUsageTitle: (name: string) => `Read the usage of ${name}?`,
+  desktopUsageConfirm: "Read usage",
+  desktopUsageBody:
+    "macOS will ask for your login keychain password: reading a profile's account and usage means decrypting its token, and the key for that is in the Claude Safe Storage keychain entry. The profile and usage APIs are then asked, and the profile's account is remembered for the list. Declining only costs this reading.",
   desktopCopyAction: "Copy into…",
   desktopCopyTitle: (name: string) => `Copy into ${name}?`,
   desktopCopyWhat: "What",
@@ -456,6 +462,13 @@ const en = {
 
   // Backend results
   errors: {
+    desktop_not_signed_in: "This profile is not signed in, so there is no usage to read.",
+    keychain_denied:
+      "There was no access to the keychain, so the account behind this profile stays unknown.",
+    desktop_token_unreadable:
+      "The profile's credentials could not be read; Claude Desktop may have changed their format.",
+    desktop_token_expired:
+      "The profile's credentials have expired. Open the profile in Claude Desktop to refresh them, then try again.",
     desktop_nothing_to_copy: "The profile chosen to copy from has nothing of that kind to copy.",
     desktop_already_has:
       "This profile already has its own. Confirm again to replace it with the copy.",

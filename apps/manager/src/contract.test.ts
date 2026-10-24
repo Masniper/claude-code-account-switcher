@@ -19,6 +19,7 @@ describe("contract", () => {
     expect(sample.update_check).toStrictEqual(library.update_check);
     expect(sample.desktop_profiles).toStrictEqual(library.desktop_profiles);
     expect(sample.runtime_cloned).toStrictEqual(library.runtime_cloned);
+    expect(sample.desktop_usage).toStrictEqual(library.desktop_usage);
     expect(sample.gui_errors).toStrictEqual(library.gui_errors);
   });
 });

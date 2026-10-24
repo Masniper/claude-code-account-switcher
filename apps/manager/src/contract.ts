@@ -91,6 +91,12 @@ export type DesktopProfiles = {
   app_profile_exists: boolean;
 };
 
+export type DesktopUsage = {
+  email: string | null;
+  plan: string | null;
+  usage: Usage;
+};
+
 export type RuntimeCloned = {
   items: number;
   logical: number;
@@ -134,7 +140,11 @@ export type GuiError =
   | "desktop_launch_failed"
   | "desktop_nothing_to_copy"
   | "desktop_already_has"
-  | "desktop_runtime_would_copy";
+  | "desktop_runtime_would_copy"
+  | "desktop_not_signed_in"
+  | "keychain_denied"
+  | "desktop_token_unreadable"
+  | "desktop_token_expired";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

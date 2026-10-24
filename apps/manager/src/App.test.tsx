@@ -37,6 +37,7 @@ vi.mock("./api", async (importOriginal) => ({
     desktopProfiles: vi.fn(),
     desktopOpen: vi.fn(),
     desktopRemove: vi.fn(),
+    desktopUsage: vi.fn(),
     desktopCloneConfig: vi.fn(),
     desktopCloneRuntime: vi.fn(),
     checkUpdate: vi.fn(),
@@ -614,6 +615,61 @@ describe("desktop", () => {
     });
     expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
     expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Copy" })).toBeTruthy();
+  });
+
+  it("reads a profile's usage only when asked, after saying the keychain will ask", async () => {
+    vi.mocked(api.desktopUsage).mockResolvedValue(sample.desktop_usage);
+    await openDesktop();
+    expect(api.desktopUsage).not.toHaveBeenCalled();
+    // Nothing to read for a profile that never signed in.
+    expect(
+      (within(row("fresh")).getByRole("button", { name: "Usage…" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(within(row("design")).getByRole("button", { name: "Usage…" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/login keychain password/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Read usage" }));
+    await waitFor(() => expect(api.desktopUsage).toHaveBeenCalledWith("design"));
+    await waitFor(() => expect(within(row("design")).getByText("12%")).toBeTruthy());
+    expect(within(row("design")).getByText(/Max 20x/)).toBeTruthy();
+    expect(within(row("design")).getByText(/^Live · checked/)).toBeTruthy();
+  });
+
+  it("forgets a reading once the profile behind the name changes", async () => {
+    vi.mocked(api.desktopUsage).mockResolvedValue(sample.desktop_usage);
+    vi.mocked(api.desktopOpen).mockResolvedValue(sample.desktop_profiles);
+    await openDesktop();
+    fireEvent.click(within(row("design")).getByRole("button", { name: "Usage…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Read usage" }));
+    await waitFor(() => expect(within(row("design")).getByText("12%")).toBeTruthy());
+    // Opened again, it may now be signed in as someone else.
+    fireEvent.click(within(row("design")).getByRole("button", { name: "Open" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(within(row("design")).queryByText("12%")).toBeNull();
+    expect(within(row("design")).getByText("designer@example.test")).toBeTruthy();
+  });
+
+  it("says when a reading came back without figures", async () => {
+    vi.mocked(api.desktopUsage).mockResolvedValue({
+      email: null,
+      plan: null,
+      usage: { source: "unavailable", fetched_at: null, five_hour: null, seven_day: null },
+    });
+    await openDesktop();
+    fireEvent.click(within(row("design")).getByRole("button", { name: "Usage…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Read usage" }));
+    expect(await within(row("design")).findByText(/usage API did not answer/)).toBeTruthy();
+  });
+
+  it("says why a profile's usage could not be read", async () => {
+    vi.mocked(api.desktopUsage).mockRejectedValue("keychain_denied");
+    await openDesktop();
+    fireEvent.click(within(row("design")).getByRole("button", { name: "Usage…" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Read usage" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("no access to the keychain");
+    expect(within(row("design")).queryByRole("meter")).toBeNull();
   });
 
   it("moves a profile to the Trash after confirming", async () => {

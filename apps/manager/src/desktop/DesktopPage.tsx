@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
-import { Dialog, Empty, Failure, Icon } from "../components";
-import type { DesktopAction, DesktopProfile, DesktopProfiles } from "../contract";
+import { Dialog, Empty, Failure, Icon, Meter } from "../components";
+import type { DesktopAction, DesktopProfile, DesktopProfiles, DesktopUsage } from "../contract";
+import { usageLabel } from "../freshness";
+import { useNow } from "../hooks";
 import { gigabytes, useCopy } from "../i18n";
 import { useNotices } from "../notices";
 
@@ -10,6 +12,7 @@ const NAME = /^[A-Za-z0-9_-]+$/;
 type Pending =
   | { kind: "open"; name: string; action: DesktopAction }
   | { kind: "copy"; name: string }
+  | { kind: "usage"; name: string }
   | { kind: "remove"; name: string }
   | null;
 
@@ -18,6 +21,11 @@ export function DesktopPage() {
   const [data, setData] = useState<DesktopProfiles | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [pending, setPending] = useState<Pending>(null);
+  // Live readings, asked for one profile at a time; never fetched unasked.
+  const [usage, setUsage] = useState<Record<string, DesktopUsage>>({});
+  // A reading describes whoever was signed in when it was taken; opening,
+  // adding or removing can change who that is.
+  const forget = (name: string) => setUsage(({ [name]: _, ...rest }) => rest);
   const load = useCallback(() => {
     setError(null);
     api.desktopProfiles().then(setData, setError);
@@ -52,6 +60,8 @@ export function DesktopPage() {
               profile={p}
               open={() => setPending({ kind: "open", name: p.name, action: "open" })}
               copy={() => setPending({ kind: "copy", name: p.name })}
+              reading={p.signed_in ? (usage[p.name] ?? null) : null}
+              read={() => setPending({ kind: "usage", name: p.name })}
               remove={() => setPending({ kind: "remove", name: p.name })}
             />
           ))}
@@ -62,7 +72,10 @@ export function DesktopPage() {
         <OpenDialog
           name={pending.name}
           action={pending.action}
-          opened={setData}
+          opened={(next) => {
+            forget(pending.name);
+            setData(next);
+          }}
           failed={load}
           onClose={() => setPending(null)}
         />
@@ -77,6 +90,19 @@ export function DesktopPage() {
           onClose={() => setPending(null)}
         />
       )}
+      {pending?.kind === "usage" && (
+        <Dialog
+          title={t.desktopUsageTitle(pending.name)}
+          confirmLabel={t.desktopUsageConfirm}
+          onConfirm={async () => {
+            const reading = await api.desktopUsage(pending.name);
+            setUsage((all) => ({ ...all, [pending.name]: reading }));
+          }}
+          onClose={() => setPending(null)}
+        >
+          <p>{t.desktopUsageBody}</p>
+        </Dialog>
+      )}
       {pending?.kind === "remove" && (
         <Dialog
           title={t.desktopTrashTitle(pending.name)}
@@ -84,6 +110,7 @@ export function DesktopPage() {
           onConfirm={async () => {
             try {
               setData(await api.desktopRemove(pending.name));
+              forget(pending.name);
             } catch (failure) {
               load();
               throw failure;
@@ -102,24 +129,48 @@ function ProfileRow({
   profile: p,
   open,
   copy,
+  reading,
+  read,
   remove,
 }: {
   profile: DesktopProfile;
   open: () => void;
   copy: () => void;
+  reading: DesktopUsage | null;
+  read: () => void;
   remove: () => void;
 }) {
   const t = useCopy();
+  const now = useNow();
+  // A live reading names the account; otherwise the local record does.
+  const email = reading?.email ?? p.email;
   return (
     <div className="session-row">
       <Icon name="desktop" />
       <div>
         <strong>{p.name}</strong>
         <span>
-          {p.signed_in ? (p.email ?? t.desktopSignedIn) : t.desktopSignedOut}
+          {p.signed_in ? (email ?? t.desktopSignedIn) : t.desktopSignedOut}
+          {reading?.plan && ` · ${reading.plan}`}
         </span>
+        {reading && (
+          <>
+            <div className="usage-meters">
+              <Meter label={t.fiveHourWindow} value={reading.usage.five_hour} now={now} />
+              <Meter label={t.sevenDayWindow} value={reading.usage.seven_day} now={now} />
+            </div>
+            <div className="usage-source">
+              {reading.usage.source === "unavailable"
+                ? t.desktopUsageUnavailable
+                : usageLabel(t, reading.usage, now)}
+            </div>
+          </>
+        )}
       </div>
       <button onClick={open}>{t.desktopOpen}</button>
+      <button className="quiet" disabled={!p.signed_in} onClick={read}>
+        {t.desktopUsageAction}
+      </button>
       <button className="quiet" onClick={copy}>
         {t.desktopCopyAction}
       </button>

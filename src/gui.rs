@@ -36,6 +36,8 @@
 //!   Claude Desktop profiles, by the rules of `claude-acc desktop`.
 //! - [`desktop_clone_config`] and [`desktop_clone_runtime`]: a Desktop
 //!   profile's MCP config, or its downloaded runtime, from another profile.
+//! - [`desktop_usage`]: who a Desktop profile is signed in as, and its
+//!   usage, as `claude-acc desktop usage` reads them: Keychain and network.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -108,6 +110,10 @@ pub enum GuiError {
     DesktopNothingToCopy,
     DesktopAlreadyHas,
     DesktopRuntimeWouldCopy,
+    DesktopNotSignedIn,
+    KeychainDenied,
+    DesktopTokenUnreadable,
+    DesktopTokenExpired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -295,6 +301,14 @@ pub enum DesktopAction {
     /// `desktop add --seed`: the new profile starts with the app's own MCP
     /// servers and preferences.
     AddSeeded,
+}
+
+/// A Desktop profile's identity and usage, read live.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DesktopUsage {
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    pub usage: Usage,
 }
 
 /// What sharing a Desktop runtime cost.
@@ -1495,6 +1509,59 @@ pub fn desktop_clone_runtime(
     Err(GuiError::UnsupportedPlatform)
 }
 
+/// Who a Desktop profile is signed in as, and its usage, as `claude-acc
+/// desktop usage` reads them for one profile: its token is decrypted with
+/// the key in the `Claude Safe Storage` Keychain entry, which **prompts**
+/// for the login keychain password, and the profile and usage APIs are
+/// asked. Like the CLI, the profile's identity cache is refreshed from the
+/// answer, so the list shows the email afterwards. macOS only, where the
+/// key is kept (`unsupported_platform` elsewhere).
+pub fn desktop_usage(config: &AppConfig, name: &str) -> Result<DesktopUsage, GuiError> {
+    if !desktop::identity_supported() {
+        return Err(GuiError::UnsupportedPlatform);
+    }
+    desktop_usage_with(
+        config,
+        name,
+        desktop_auth::profile_token,
+        identity::fetch_profile,
+        identity::fetch_usage,
+    )
+}
+
+fn desktop_usage_with(
+    config: &AppConfig,
+    name: &str,
+    token: impl FnOnce(&Path) -> desktop_auth::TokenResult,
+    fetch_profile: impl FnOnce(&str) -> Option<identity::Profile>,
+    fetch_usage: impl FnOnce(&str) -> Option<identity::Usage>,
+) -> Result<DesktopUsage, GuiError> {
+    use desktop_auth::TokenResult;
+    let dir = desktop_profile_dir(config, name)?;
+    if !dir.is_dir() {
+        return Err(GuiError::AccountMissing);
+    }
+    let token = match token(&dir) {
+        TokenResult::Ok(token) => token,
+        TokenResult::NotSignedIn => return Err(GuiError::DesktopNotSignedIn),
+        TokenResult::NoKeychain => return Err(GuiError::KeychainDenied),
+        TokenResult::Unreadable => return Err(GuiError::DesktopTokenUnreadable),
+        TokenResult::Expired => return Err(GuiError::DesktopTokenExpired),
+    };
+    let profile = fetch_profile(&token);
+    if let Some(fresh) = &profile {
+        // Best effort, as in the CLI: the reading is shown either way.
+        let _ = identity::write_cache_at(&dir.join(".account-info.json"), fresh, &token);
+    }
+    let reading =
+        fetch_usage(&token).map_or(identity::UsageResult::Offline, identity::UsageResult::Ok);
+    Ok(DesktopUsage {
+        email: profile.as_ref().and_then(|p| p.email.clone()),
+        plan: profile.and_then(|p| p.plan),
+        usage: usage(reading, now()),
+    })
+}
+
 /// Whether a running instance has profile `name` open. `ps` gives each
 /// instance's profile directory as it was spelled at launch, and on a
 /// case-insensitive volume `Design` opens `design`.
@@ -2549,6 +2616,89 @@ mod tests {
     }
 
     #[test]
+    fn desktop_usage_reports_why_it_has_no_token_and_refreshes_the_cache() {
+        use desktop_auth::TokenResult;
+        let (c, root) = fixture("desktop-usage");
+        let dir = desktop_profile(&c, "design", Some("u-1"));
+        let never_profile = |_: &str| -> Option<identity::Profile> { panic!("asked the API") };
+        let never_usage = |_: &str| -> Option<identity::Usage> { panic!("asked the API") };
+        for (result, error) in [
+            (TokenResult::NotSignedIn, GuiError::DesktopNotSignedIn),
+            (TokenResult::NoKeychain, GuiError::KeychainDenied),
+            (TokenResult::Unreadable, GuiError::DesktopTokenUnreadable),
+            (TokenResult::Expired, GuiError::DesktopTokenExpired),
+        ] {
+            assert_eq!(
+                desktop_usage_with(&c, "design", |_| result, never_profile, never_usage),
+                Err(error)
+            );
+        }
+        assert_eq!(
+            desktop_usage_with(
+                &c,
+                "ghost",
+                |_| panic!("read a token"),
+                never_profile,
+                never_usage
+            ),
+            Err(GuiError::AccountMissing)
+        );
+
+        let mut asked_with = Vec::new();
+        let read = desktop_usage_with(
+            &c,
+            "design",
+            |d| {
+                assert_eq!(d, dir.as_path());
+                TokenResult::Ok("tok".into())
+            },
+            |t| {
+                asked_with.push(t.to_string());
+                Some(identity::Profile {
+                    email: Some("designer@example.test".into()),
+                    uuid: Some("u-1".into()),
+                    organization: None,
+                    plan: Some("Max 20x".into()),
+                })
+            },
+            |_| {
+                Some(identity::Usage {
+                    five_hour: Some(identity::UsageWindow {
+                        utilization: 12.0,
+                        resets_at: None,
+                    }),
+                    seven_day: None,
+                })
+            },
+        )
+        .unwrap();
+        assert_eq!(asked_with, ["tok"]);
+        assert_eq!(read.email.as_deref(), Some("designer@example.test"));
+        assert_eq!(read.plan.as_deref(), Some("Max 20x"));
+        assert_eq!(read.usage.source, UsageSource::Live);
+        assert_eq!(read.usage.five_hour.map(|w| w.percent), Some(12.0));
+        // The list names the profile from the refreshed cache from now on.
+        let listed = desktop_profiles(&c, &root.join("standard"), None).unwrap();
+        assert_eq!(
+            listed.profiles[0].email.as_deref(),
+            Some("designer@example.test")
+        );
+
+        // The API not answering is a reading without figures, not an error.
+        let offline = desktop_usage_with(
+            &c,
+            "design",
+            |_| TokenResult::Ok("tok".into()),
+            |_| None,
+            |_| None,
+        )
+        .unwrap();
+        assert_eq!(offline.usage.source, UsageSource::Unavailable);
+        assert_eq!(offline.email, None);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -2802,6 +2952,20 @@ mod tests {
             sample["desktop_profiles"],
             serde_json::to_value(desktop_profiles).unwrap()
         );
+        let desktop_usage = DesktopUsage {
+            email: Some("designer@example.test".into()),
+            plan: Some("Max 20x".into()),
+            usage: Usage {
+                source: UsageSource::Live,
+                fetched_at: Some(1_700_000_900),
+                five_hour: window(12.0, Some(1_700_010_000)),
+                seven_day: None,
+            },
+        };
+        assert_eq!(
+            sample["desktop_usage"],
+            serde_json::to_value(desktop_usage).unwrap()
+        );
         let runtime_cloned = RuntimeCloned {
             items: 4,
             logical: 10_737_418_240,
@@ -2842,6 +3006,10 @@ mod tests {
             GuiError::DesktopNothingToCopy,
             GuiError::DesktopAlreadyHas,
             GuiError::DesktopRuntimeWouldCopy,
+            GuiError::DesktopNotSignedIn,
+            GuiError::KeychainDenied,
+            GuiError::DesktopTokenUnreadable,
+            GuiError::DesktopTokenExpired,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }

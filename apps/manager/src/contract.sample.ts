@@ -4,6 +4,7 @@
 import type {
   Bindings,
   DesktopProfiles,
+  DesktopUsage,
   Editor,
   RuntimeCloned,
   ManagerError,
@@ -22,6 +23,7 @@ export const sample: {
   update_check: UpdateCheck;
   desktop_profiles: DesktopProfiles;
   runtime_cloned: RuntimeCloned;
+  desktop_usage: DesktopUsage;
   sessions: Session[];
   launch: Launch;
   installation: Installation;
@@ -110,6 +112,16 @@ export const sample: {
     app_profile_exists: true,
   },
   runtime_cloned: { items: 4, logical: 10737418240, on_disk: 0 },
+  desktop_usage: {
+    email: "designer@example.test",
+    plan: "Max 20x",
+    usage: {
+      source: "live",
+      fetched_at: 1700000900,
+      five_hour: { percent: 12.0, resets_at: 1700010000 },
+      seven_day: null,
+    },
+  },
   sessions: [
     {
       id: "11111111-2222-3333-4444-555555555555",
@@ -153,6 +165,10 @@ export const sample: {
     "desktop_nothing_to_copy",
     "desktop_already_has",
     "desktop_runtime_would_copy",
+    "desktop_not_signed_in",
+    "keychain_denied",
+    "desktop_token_unreadable",
+    "desktop_token_expired",
   ],
   manager_errors: [
     "cli_missing",
