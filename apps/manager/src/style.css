@@ -909,6 +909,9 @@ dd {
   display: block;
   font-size: 12px;
 }
+.setting-row .editor-state {
+  display: block;
+}
 .setting-row span {
   font-size: 11px;
   color: var(--muted);

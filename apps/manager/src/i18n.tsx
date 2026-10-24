@@ -19,6 +19,7 @@
 // for inline markup, still compiles, so check that in review.
 import { createContext, useContext, useLayoutEffect, type ReactNode } from "react";
 import type {
+  EditorState,
   ErrorCode,
   IdentitySource,
   Launch,
@@ -307,6 +308,29 @@ const en = {
     </>
   ),
 
+  vscodeTitle: "VS Code integration",
+  vscodeNone: "No VS Code, VS Code Insiders, VSCodium or Cursor found on this Mac.",
+  editorStates: {
+    ours: "on: the extension runs the agent under each workspace folder's account",
+    unset: "off: the extension's own UI ignores the account",
+    foreign: "set to another tool's launcher",
+    unreadable: "settings.json cannot be read as JSON, so it is left alone",
+    linked: "settings.json is a link, so it is left alone; edit it by hand",
+  } satisfies Record<EditorState, string>,
+  vscodeOtherProfiles: "(profiles other than the default read their own settings)",
+  vscodeInstallAction: "Set up…",
+  vscodeUninstallAction: "Remove…",
+  vscodeInstallTitle: "Set up the VS Code integration?",
+  vscodeInstallConfirm: "Set up",
+  vscodeInstallBody:
+    "Point claudeCode.claudeProcessWrapper in each editor's settings.json at a launcher in ~/.claude-switch/bin, so the Claude Code extension runs the agent under the workspace folder's account, as a terminal does. The rest of the extension, such as its session list, MCP servers and plugins, still reads ~/.claude. A launcher set by another tool, an unreadable settings.json and a linked one are left alone. With a process wrapper set, the extension resolves the permission mode itself instead of deferring to the CLI and stops checking for its own updates; that is its behaviour, not ours. Remove takes our launcher out again; one it replaced is not put back.",
+  vscodeReplaceForeign: "Also replace the launcher another tool set",
+  vscodeUninstallTitle: "Remove the VS Code integration?",
+  vscodeUninstallConfirm: "Remove",
+  vscodeUninstallBody:
+    "Take claudeCode.claudeProcessWrapper out of each editor that points at our launcher. A launcher set by another tool, and a settings.json that is a link, are left in place.",
+  vscodeRestart: "Restart the editor for it to take effect.",
+
   // Sessions
   sessionsBanner:
     "This browser reads session metadata only, never a transcript's content. Copying a session to another account leaves the original where it is.",
@@ -357,8 +381,9 @@ const en = {
 
   // Backend results
   errors: {
+    unsupported_platform: "This is not available on this platform yet.",
     cli_not_installed:
-      "The status line runs claude-acc from ~/.claude-switch/bin, which is not installed. Install the CLI with claude-acc install first.",
+      "This runs claude-acc from ~/.claude-switch/bin, which is not installed. Install the CLI with claude-acc install first.",
     statusline_exists:
       "This account already has a status line of its own. Confirm again to replace it; the rest of settings.json is kept.",
     import_source_refused:

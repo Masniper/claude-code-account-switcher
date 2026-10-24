@@ -29,6 +29,9 @@ vi.mock("./api", async (importOriginal) => ({
     copySession: vi.fn(),
     resumeHook: vi.fn(),
     setResumeHook: vi.fn(),
+    vscodeEditors: vi.fn(),
+    vscodeInstall: vi.fn(),
+    vscodeUninstall: vi.fn(),
     terminal: vi.fn(),
     installation: vi.fn(),
     chooseDirectory: vi.fn(),
@@ -60,6 +63,7 @@ beforeEach(() => {
   vi.mocked(api.bindings).mockResolvedValue({ bindings: [], selected: null });
   vi.mocked(api.sessions).mockResolvedValue([]);
   vi.mocked(api.resumeHook).mockResolvedValue(true);
+  vi.mocked(api.vscodeEditors).mockResolvedValue([]);
   vi.mocked(api.terminal).mockResolvedValue({ state: "started" });
   vi.mocked(api.installation).mockResolvedValue(sample.installation);
   HTMLDialogElement.prototype.showModal = function () {
@@ -447,6 +451,85 @@ describe("projects", () => {
     await waitFor(() =>
       expect(api.bind).toHaveBeenCalledWith("/Projects/nested", "personal"),
     );
+  });
+});
+
+describe("vs code", () => {
+  const openProjects = async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: /Projects/ }));
+  };
+
+  it("sets the editors up, replacing another tool's launcher only when ticked", async () => {
+    vi.mocked(api.vscodeEditors).mockResolvedValue(
+      sample.editors.map((e) => ({ ...e, state: e.name === "Cursor" ? "foreign" : "unset" })),
+    );
+    vi.mocked(api.vscodeInstall).mockResolvedValue(sample.editors);
+    await openProjects();
+    expect(await screen.findByText(/off: the extension's own UI ignores/)).toBeTruthy();
+    expect(screen.getByText(/profiles other than the default/)).toBeTruthy();
+    // Nothing is ours yet, so there is nothing to remove.
+    expect((screen.getByRole("button", { name: "Remove…" }) as HTMLButtonElement).disabled).toBe(true);
+    for (const force of [false, true]) {
+      fireEvent.click(screen.getByRole("button", { name: "Set up…" }));
+      const dialog = await screen.findByRole("dialog");
+      const box = within(dialog).getByRole("checkbox", { name: /another tool set/ }) as HTMLInputElement;
+      expect(box.checked).toBe(false);
+      if (force) fireEvent.click(box);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Set up" }));
+      await waitFor(() => expect(api.vscodeInstall).toHaveBeenLastCalledWith(force));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+    expect((screen.getByRole("button", { name: "Remove…" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("Restart the editor for it to take effect.")).toBeTruthy();
+    // Replacing is a choice made each time, not one that sticks.
+    fireEvent.click(screen.getByRole("button", { name: "Set up…" }));
+    const again = await screen.findByRole("dialog");
+    expect(
+      (within(again).getByRole("checkbox", { name: /another tool set/ }) as HTMLInputElement).checked,
+    ).toBe(false);
+  });
+
+  it("removes the integration and offers no replace box without another launcher", async () => {
+    vi.mocked(api.vscodeEditors).mockResolvedValue([{ ...sample.editors[0] }]);
+    vi.mocked(api.vscodeUninstall).mockResolvedValue([{ ...sample.editors[0], state: "unset" }]);
+    await openProjects();
+    fireEvent.click(await screen.findByRole("button", { name: "Set up…" }));
+    expect(within(await screen.findByRole("dialog")).queryByRole("checkbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(api.vscodeUninstall).toHaveBeenCalled());
+    expect(await screen.findByText(/off: the extension's own UI ignores/)).toBeTruthy();
+  });
+
+  it("reads the editors again after a failure, and hints a restart only after a change", async () => {
+    const unset = { ...sample.editors[0], state: "unset" as const };
+    vi.mocked(api.vscodeEditors)
+      .mockResolvedValueOnce([unset])
+      .mockResolvedValue([sample.editors[0]]);
+    vi.mocked(api.vscodeInstall)
+      .mockRejectedValueOnce("storage_write_failed")
+      .mockResolvedValue([sample.editors[0]]);
+    await openProjects();
+    fireEvent.click(await screen.findByRole("button", { name: "Set up…" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Set up" }));
+    await within(dialog).findByRole("alert");
+    // Partly written: the list now shows what is on disk.
+    await waitFor(() => expect(api.vscodeEditors).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText(/on: the extension runs the agent/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Set up" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Nothing changed this time, so there is nothing to restart for.
+    expect(screen.queryByText("Restart the editor for it to take effect.")).toBeNull();
+  });
+
+  it("says when no editor is installed", async () => {
+    await openProjects();
+    expect(await screen.findByText(/No VS Code, VS Code Insiders, VSCodium or Cursor/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Set up…" })).toBeNull();
   });
 });
 

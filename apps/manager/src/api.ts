@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Bindings,
+  Editor,
   Installation,
   Launch,
   LaunchAction,
@@ -33,6 +34,9 @@ export const api = {
   setResumeHook: (on: boolean) => invoke<boolean>("set_resume_hook", { on }),
   copySession: (from: string, project: string, id: string, to: string, replace: boolean) =>
     invoke<Session[]>("copy_session", { from, project, id, to, replace }),
+  vscodeEditors: () => invoke<Editor[]>("vscode_editors"),
+  vscodeInstall: (force: boolean) => invoke<Editor[]>("vscode_install", { force }),
+  vscodeUninstall: () => invoke<Editor[]>("vscode_uninstall"),
   terminal: (account: string, directory: string | null, action: LaunchAction) =>
     invoke<Launch>("open_terminal", { account, directory, action }),
   installation: () => invoke<Installation>("installation"),

@@ -28,6 +28,8 @@
 //!   account, by the rules of `claude-acc import`.
 //! - [`install_statusline`]: point an account's Claude Code at `claude-acc
 //!   statusline`, as `claude-acc statusline --install` does.
+//! - [`vscode_editors`], [`vscode_install`] and [`vscode_uninstall`]: the
+//!   VS Code process wrapper, by the rules of `claude-acc vscode`.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -60,7 +62,7 @@
 //! unbound directories.
 use crate::config::{AppConfig, binary_name, validate_name};
 use crate::import::{self, Refusal};
-use crate::{identity, resolve, seed, sessions, statusline, trash};
+use crate::{identity, resolve, seed, sessions, statusline, trash, vscode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -90,6 +92,7 @@ pub enum GuiError {
     ImportSourceRefused,
     CliNotInstalled,
     StatuslineExists,
+    UnsupportedPlatform,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -211,6 +214,31 @@ pub struct Session {
     pub modified: Option<u64>,
     pub size: u64,
     pub duplicate: bool,
+}
+
+/// What a VS Code-family editor's `claudeCode.claudeProcessWrapper` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditorState {
+    /// Points at our wrapper: the native UI follows the workspace's account.
+    Ours,
+    Unset,
+    /// Another tool's launcher; its path is not sent.
+    Foreign,
+    /// `settings.json` cannot be read as JSON this can edit safely.
+    Unreadable,
+    /// `settings.json` is a link. Writing it means replacing it, which would
+    /// cut it off from wherever it points, so it is left alone.
+    Linked,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Editor {
+    pub name: String,
+    pub state: EditorState,
+    /// Profiles beyond the default one read their own settings, not the file
+    /// this writes.
+    pub other_profiles: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1007,6 +1035,131 @@ pub fn install_statusline(
             let _ = fs::remove_file(&staged);
             GuiError::StorageWriteFailed
         })
+}
+
+fn editor_state(editor: &vscode::Editor, wrapper: &Path) -> EditorState {
+    if fs::symlink_metadata(&editor.settings).is_ok_and(|m| m.file_type().is_symlink()) {
+        return EditorState::Linked;
+    }
+    match vscode::wrapper_state(&editor.settings, wrapper) {
+        vscode::WrapperState::Ours => EditorState::Ours,
+        vscode::WrapperState::Unset => EditorState::Unset,
+        vscode::WrapperState::Foreign(_) => EditorState::Foreign,
+        vscode::WrapperState::Unreadable => EditorState::Unreadable,
+    }
+}
+
+/// Every VS Code-family editor installed here and what its process wrapper
+/// setting says, as `claude-acc vscode status` reports it. Empty when none
+/// is installed.
+pub fn vscode_editors(config: &AppConfig) -> Vec<Editor> {
+    dirs::config_dir().map_or_else(Vec::new, |root| vscode_editors_in(config, &root))
+}
+
+/// [`vscode_editors`] under `editors_root`, the platform's config directory
+/// (`~/Library/Application Support` on macOS) or a test's.
+fn vscode_editors_in(config: &AppConfig, editors_root: &Path) -> Vec<Editor> {
+    let wrapper = vscode::wrapper_path(&config.base_dir);
+    vscode::detect_editors_in(editors_root)
+        .iter()
+        .map(|e| Editor {
+            name: e.label.to_string(),
+            state: editor_state(e, &wrapper),
+            other_profiles: !vscode::extra_profiles_in(editors_root, e.dir).is_empty(),
+        })
+        .collect()
+}
+
+/// Set up the editors installed here; the rules are on `vscode_install_in`.
+pub fn vscode_install(config: &AppConfig, force: bool) -> Result<Vec<Editor>, GuiError> {
+    let root = dirs::config_dir().ok_or(GuiError::DirectoryMissing)?;
+    vscode_install_in(config, &root, force)
+}
+
+/// Point every installed editor's process wrapper at ours, by the CLI's
+/// `plan_install`: an unreadable file is never written, and another tool's
+/// launcher is replaced only with `force`. Returns the editors as they are
+/// afterwards; if one could not be written, the others are still tried and
+/// the reply is `storage_write_failed`.
+///
+/// Unlike `claude-acc vscode install`, the wrapper always runs the CLI
+/// installed under the switch directory (`cli_not_installed` without one):
+/// the CLI falls back to the running binary, which here would be this app.
+/// And a linked `settings.json` is left alone.
+fn vscode_install_in(
+    config: &AppConfig,
+    editors_root: &Path,
+    force: bool,
+) -> Result<Vec<Editor>, GuiError> {
+    if cfg!(windows) {
+        // The wrapper is a shell script; the CLI refuses here too.
+        return Err(GuiError::UnsupportedPlatform);
+    }
+    let bin = config.base_dir.join("bin").join(binary_name());
+    if !bin.is_file() {
+        return Err(GuiError::CliNotInstalled);
+    }
+    let wrapper = vscode::wrapper_path(&config.base_dir);
+    reject_symlinks(&config.base_dir, &wrapper)?;
+    write_vscode_wrapper(config, &bin)?;
+    // Every editor is tried, as in the CLI: one that cannot be written does
+    // not keep the others from being set up.
+    let mut failed = false;
+    for editor in vscode::detect_editors_in(editors_root) {
+        if editor_state(&editor, &wrapper) == EditorState::Linked {
+            continue;
+        }
+        let state = vscode::wrapper_state(&editor.settings, &wrapper);
+        if vscode::plan_install(&state, force) == vscode::InstallAction::Write {
+            failed |= vscode::set_wrapper(&editor.settings, &wrapper).is_err();
+        }
+    }
+    if failed {
+        return Err(GuiError::StorageWriteFailed);
+    }
+    Ok(vscode_editors_in(config, editors_root))
+}
+
+#[cfg(not(windows))]
+fn write_vscode_wrapper(config: &AppConfig, bin: &Path) -> Result<(), GuiError> {
+    vscode::install_wrapper(&config.base_dir, bin)
+        .map(|_| ())
+        .map_err(|_| GuiError::StorageWriteFailed)
+}
+
+#[cfg(windows)]
+fn write_vscode_wrapper(_: &AppConfig, _: &Path) -> Result<(), GuiError> {
+    Err(GuiError::UnsupportedPlatform)
+}
+
+/// Undo [`vscode_install`] for the editors installed here; the rules are on
+/// `vscode_uninstall_in`.
+pub fn vscode_uninstall(config: &AppConfig) -> Result<Vec<Editor>, GuiError> {
+    let root = dirs::config_dir().ok_or(GuiError::DirectoryMissing)?;
+    vscode_uninstall_in(config, &root)
+}
+
+/// Take our process wrapper out of every installed editor, by the CLI's
+/// `plan_uninstall`: another tool's launcher stays, and so does a linked
+/// `settings.json`. The wrapper file itself stays too, as with the CLI;
+/// nothing runs it once no editor points at it. Returns the editors as they
+/// are afterwards.
+fn vscode_uninstall_in(config: &AppConfig, editors_root: &Path) -> Result<Vec<Editor>, GuiError> {
+    let wrapper = vscode::wrapper_path(&config.base_dir);
+    let mut failed = false;
+    for editor in vscode::detect_editors_in(editors_root) {
+        if editor_state(&editor, &wrapper) == EditorState::Linked {
+            continue;
+        }
+        let state = vscode::wrapper_state(&editor.settings, &wrapper);
+        if vscode::plan_uninstall(&state) == vscode::UninstallAction::Clear {
+            failed |= vscode::clear_wrapper(&editor.settings).is_err();
+        }
+    }
+    if failed {
+        return Err(GuiError::StorageWriteFailed);
+    }
+    Ok(vscode_editors_in(config, editors_root))
 }
 
 /// Pin an account to the identity it is signed in as now, as `claude-acc
@@ -1957,6 +2110,19 @@ mod tests {
         assert_eq!(sample["snapshot"], serde_json::to_value(snapshot).unwrap());
         assert_eq!(sample["bindings"], serde_json::to_value(bindings).unwrap());
         assert_eq!(sample["sessions"], serde_json::to_value(sessions).unwrap());
+        let editors = vec![
+            Editor {
+                name: "VS Code".into(),
+                state: EditorState::Ours,
+                other_profiles: false,
+            },
+            Editor {
+                name: "Cursor".into(),
+                state: EditorState::Foreign,
+                other_profiles: true,
+            },
+        ];
+        assert_eq!(sample["editors"], serde_json::to_value(editors).unwrap());
         let codes = [
             GuiError::InvalidAccount,
             GuiError::AccountMissing,
@@ -1976,6 +2142,7 @@ mod tests {
             GuiError::ImportSourceRefused,
             GuiError::CliNotInstalled,
             GuiError::StatuslineExists,
+            GuiError::UnsupportedPlatform,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -2293,6 +2460,139 @@ mod tests {
             Err(GuiError::SymlinkStorage)
         );
         assert!(settings.is_symlink());
+        assert_eq!(fs::read_to_string(&dotfiles).unwrap(), "{}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// An editors' config root holding VS Code (nothing set) and Cursor
+    /// (another tool's launcher, and a second profile).
+    #[cfg(unix)]
+    fn editors(root: &Path) -> PathBuf {
+        let editors = root.join("config");
+        fs::create_dir_all(editors.join("Code/User")).unwrap();
+        fs::create_dir_all(editors.join("Cursor/User/profiles/a1b2")).unwrap();
+        fs::write(
+            editors.join("Cursor/User/settings.json"),
+            r#"{"claudeCode.claudeProcessWrapper": "/opt/other"}"#,
+        )
+        .unwrap();
+        editors
+    }
+
+    #[cfg(unix)]
+    fn states(c: &AppConfig, editors: &Path) -> Vec<(String, EditorState)> {
+        vscode_editors_in(c, editors)
+            .into_iter()
+            .map(|e| (e.name, e.state))
+            .collect()
+    }
+
+    // Unix only: on Windows install refuses, as the CLI does.
+    #[cfg(unix)]
+    #[test]
+    fn vs_code_is_set_up_by_the_clis_rules_and_another_launcher_needs_force() {
+        let (c, root) = fixture("vscode");
+        let editors = editors(&root);
+        let ed = |name: &str, state| (name.to_string(), state);
+        assert_eq!(
+            vscode_install_in(&c, &editors, false),
+            Err(GuiError::CliNotInstalled)
+        );
+        assert!(!vscode::wrapper_path(&c.base_dir).exists());
+
+        installed_cli(&c);
+        let after = vscode_install_in(&c, &editors, false).unwrap();
+        assert_eq!(
+            after
+                .iter()
+                .map(|e| (e.name.clone(), e.state))
+                .collect::<Vec<_>>(),
+            [
+                ed("VS Code", EditorState::Ours),
+                ed("Cursor", EditorState::Foreign)
+            ]
+        );
+        assert_eq!(
+            after.iter().map(|e| e.other_profiles).collect::<Vec<_>>(),
+            [false, true]
+        );
+        assert!(vscode::wrapper_path(&c.base_dir).is_file());
+        vscode_install_in(&c, &editors, true).unwrap();
+        assert_eq!(
+            states(&c, &editors),
+            [
+                ed("VS Code", EditorState::Ours),
+                ed("Cursor", EditorState::Ours)
+            ]
+        );
+        vscode_uninstall_in(&c, &editors).unwrap();
+        assert_eq!(
+            states(&c, &editors),
+            [
+                ed("VS Code", EditorState::Unset),
+                ed("Cursor", EditorState::Unset)
+            ]
+        );
+        assert!(vscode_editors_in(&c, &root.join("no-editors")).is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_editor_that_cannot_be_written_does_not_stop_the_others() {
+        use std::os::unix::fs::PermissionsExt;
+        let (c, root) = fixture("vscode-partial");
+        let editors = editors(&root);
+        fs::write(editors.join("Cursor/User/settings.json"), "{}").unwrap();
+        installed_cli(&c);
+        // VS Code comes first, and nothing can be created in its folder.
+        let code = editors.join("Code/User");
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = vscode_install_in(&c, &editors, false);
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result, Err(GuiError::StorageWriteFailed));
+        assert_eq!(states(&c, &editors)[1].1, EditorState::Ours);
+
+        // The same for taking it out again.
+        vscode_install_in(&c, &editors, false).unwrap();
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o555)).unwrap();
+        let result = vscode_uninstall_in(&c, &editors);
+        fs::set_permissions(&code, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(result, Err(GuiError::StorageWriteFailed));
+        assert_eq!(
+            states(&c, &editors)
+                .into_iter()
+                .map(|(_, s)| s)
+                .collect::<Vec<_>>(),
+            [EditorState::Ours, EditorState::Unset]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_linked_and_foreign_settings_are_left_as_they_are() {
+        let (c, root) = fixture("vscode-kept");
+        let editors = editors(&root);
+        installed_cli(&c);
+        let code = editors.join("Code/User/settings.json");
+        fs::write(&code, "{ broken").unwrap();
+        // Uninstall never takes another tool's launcher away.
+        vscode_uninstall_in(&c, &editors).unwrap();
+        let cursor = editors.join("Cursor/User/settings.json");
+        assert!(fs::read_to_string(&cursor).unwrap().contains("/opt/other"));
+        // Force replaces a launcher, never a file that could not be read.
+        vscode_install_in(&c, &editors, true).unwrap();
+        assert_eq!(fs::read_to_string(&code).unwrap(), "{ broken");
+
+        let dotfiles = root.join("dotfiles-settings.json");
+        fs::write(&dotfiles, "{}").unwrap();
+        fs::remove_file(&code).unwrap();
+        std::os::unix::fs::symlink(&dotfiles, &code).unwrap();
+        assert_eq!(states(&c, &editors)[0].1, EditorState::Linked);
+        vscode_install_in(&c, &editors, true).unwrap();
+        vscode_uninstall_in(&c, &editors).unwrap();
+        assert!(code.is_symlink());
         assert_eq!(fs::read_to_string(&dotfiles).unwrap(), "{}");
         fs::remove_dir_all(root).unwrap();
     }

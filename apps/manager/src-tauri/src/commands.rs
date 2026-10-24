@@ -3,7 +3,7 @@
 use crate::backend::{self, AppError, Backend, Revisioned};
 use crate::copy::{LANG, Text, text};
 use crate::launcher::{self, Installation, Launch};
-use claude_acc::gui::{self, Bindings, LaunchAction, Session};
+use claude_acc::gui::{self, Bindings, Editor, LaunchAction, Session};
 use tauri::{AppHandle, Manager};
 
 async fn blocking<T: Send + 'static>(
@@ -152,6 +152,30 @@ pub async fn set_resume_hook(app: AppHandle, on: bool) -> Result<bool, AppError>
         let config = &app.state::<Backend>().config;
         gui::set_resume_hook(config, on)?;
         Ok(gui::resume_hook(config)?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vscode_editors(app: AppHandle) -> Result<Vec<Editor>, AppError> {
+    blocking(app, |app| {
+        Ok(gui::vscode_editors(&app.state::<Backend>().config))
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vscode_install(app: AppHandle, force: bool) -> Result<Vec<Editor>, AppError> {
+    blocking(app, move |app| {
+        Ok(gui::vscode_install(&app.state::<Backend>().config, force)?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn vscode_uninstall(app: AppHandle) -> Result<Vec<Editor>, AppError> {
+    blocking(app, |app| {
+        Ok(gui::vscode_uninstall(&app.state::<Backend>().config)?)
     })
     .await
 }

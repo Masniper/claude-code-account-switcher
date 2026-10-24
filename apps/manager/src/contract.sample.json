@@ -64,6 +64,18 @@
       "inherited_from": "/Projects"
     }
   },
+  "editors": [
+    {
+      "name": "VS Code",
+      "state": "ours",
+      "other_profiles": false
+    },
+    {
+      "name": "Cursor",
+      "state": "foreign",
+      "other_profiles": true
+    }
+  ],
   "sessions": [
     {
       "id": "11111111-2222-3333-4444-555555555555",
@@ -98,7 +110,8 @@
     "session_exists",
     "import_source_refused",
     "cli_not_installed",
-    "statusline_exists"
+    "statusline_exists",
+    "unsupported_platform"
   ],
   "manager_errors": [
     "cli_missing",
