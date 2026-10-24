@@ -37,6 +37,8 @@ fn main() {
             commands::desktop_profiles,
             commands::desktop_open,
             commands::desktop_remove,
+            commands::desktop_clone_config,
+            commands::desktop_clone_runtime,
             commands::installation,
             commands::check_update,
             commands::choose_directory,

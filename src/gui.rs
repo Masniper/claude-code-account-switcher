@@ -34,6 +34,8 @@
 //!   and installed CLIs, as `claude-acc update --check` reports it.
 //! - [`desktop_profiles`], [`desktop_prepare`] and [`desktop_remove`]:
 //!   Claude Desktop profiles, by the rules of `claude-acc desktop`.
+//! - [`desktop_clone_config`] and [`desktop_clone_runtime`]: a Desktop
+//!   profile's MCP config, or its downloaded runtime, from another profile.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -103,6 +105,9 @@ pub enum GuiError {
     DesktopRunning,
     DesktopAppMissing,
     DesktopLaunchFailed,
+    DesktopNothingToCopy,
+    DesktopAlreadyHas,
+    DesktopRuntimeWouldCopy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -290,6 +295,18 @@ pub enum DesktopAction {
     /// `desktop add --seed`: the new profile starts with the app's own MCP
     /// servers and preferences.
     AddSeeded,
+}
+
+/// What sharing a Desktop runtime cost.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RuntimeCloned {
+    pub items: usize,
+    /// Bytes cloned, as the files' own sizes.
+    pub logical: u64,
+    /// Free space the volume lost, when `df` could say; about nothing when
+    /// the clone shared its blocks, the whole size when it fell back to a
+    /// copy.
+    pub on_disk: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1355,6 +1372,140 @@ pub fn desktop_prepare(
     Ok(dir)
 }
 
+/// The profile a copy goes into, which must exist, and the one it comes
+/// from: another managed profile with `from`, otherwise the app's own
+/// (`unsupported_platform` where it has none), as in the CLI.
+fn desktop_copy_ends(
+    config: &AppConfig,
+    app_profile: Option<&Path>,
+    name: &str,
+    from: Option<&str>,
+) -> Result<(PathBuf, PathBuf), GuiError> {
+    let dest = desktop_profile_dir(config, name)?;
+    if !dest.is_dir() {
+        return Err(GuiError::AccountMissing);
+    }
+    let source = match from {
+        // The same profile by another spelling, which a case-insensitive
+        // volume resolves to the same directory.
+        Some(from) if from.eq_ignore_ascii_case(name) => return Err(GuiError::InvalidAccount),
+        Some(from) => {
+            let source = desktop_profile_dir(config, from)?;
+            if !source.is_dir() {
+                return Err(GuiError::AccountMissing);
+            }
+            source
+        }
+        None => app_profile
+            .map(Path::to_path_buf)
+            .ok_or(GuiError::UnsupportedPlatform)?,
+    };
+    // Copying a profile onto itself; the window never offers it.
+    if source == dest {
+        return Err(GuiError::InvalidAccount);
+    }
+    Ok((dest, source))
+}
+
+/// Copy the MCP config (`claude_desktop_config.json`) into a Desktop
+/// profile, as `claude-acc desktop clone-config` does, through its
+/// `plan_clone`: one the profile already has is replaced only with `force`
+/// (`desktop_already_has`), and a source without one is
+/// `desktop_nothing_to_copy`.
+pub fn desktop_clone_config(
+    config: &AppConfig,
+    app_profile: Option<&Path>,
+    name: &str,
+    from: Option<&str>,
+    force: bool,
+) -> Result<(), GuiError> {
+    let (dest, source) = desktop_copy_ends(config, app_profile, name, from)?;
+    match desktop::plan_clone(
+        source.join(desktop::CONFIG_FILE).is_file(),
+        dest.join(desktop::CONFIG_FILE).is_file(),
+        force,
+    ) {
+        desktop::ClonePlan::NoSource => Err(GuiError::DesktopNothingToCopy),
+        desktop::ClonePlan::Keep => Err(GuiError::DesktopAlreadyHas),
+        desktop::ClonePlan::Copy => desktop::clone_config(&source, &dest)
+            .map(|_| ())
+            .map_err(|_| GuiError::StorageWriteFailed),
+    }
+}
+
+/// Share the downloaded runtime with a Desktop profile by APFS clone, as
+/// `claude-acc desktop clone-runtime` does, through its `plan`: a runtime
+/// the profile already has is replaced only with `force`
+/// (`desktop_already_has`), and a clone across volumes, which would be a
+/// full copy, is `desktop_runtime_would_copy`. Unlike the CLI, a profile
+/// that a running instance has open is refused (`desktop_running`): the
+/// clone replaces the files it runs from. macOS only, like the clone.
+#[cfg(target_os = "macos")]
+pub fn desktop_clone_runtime(
+    config: &AppConfig,
+    app_profile: Option<&Path>,
+    name: &str,
+    from: Option<&str>,
+    force: bool,
+    running: &[desktop::Instance],
+) -> Result<RuntimeCloned, GuiError> {
+    use crate::desktop_runtime as runtime;
+    let (dest, source) = desktop_copy_ends(config, app_profile, name, from)?;
+    if desktop_in_use(name, running) {
+        return Err(GuiError::DesktopRunning);
+    }
+    let items = runtime::shareable(&source);
+    // Read from and written under the switch directory, so neither end may
+    // be a link out of it. The app's own profile is the user's, outside it.
+    for item in &items {
+        if from.is_some() {
+            reject_symlinks(&config.base_dir, &source.join(&item.rel))?;
+        }
+        reject_symlinks(&config.base_dir, &dest.join(&item.rel))?;
+    }
+    match runtime::plan(
+        items.len(),
+        runtime::shareable(&dest).len(),
+        // Unknown counts as another volume: being wrong costs a real copy.
+        runtime::same_device(&source, &dest).unwrap_or(false),
+        force,
+    ) {
+        runtime::RuntimePlan::NoSource => Err(GuiError::DesktopNothingToCopy),
+        runtime::RuntimePlan::Keep => Err(GuiError::DesktopAlreadyHas),
+        runtime::RuntimePlan::WouldCopy => Err(GuiError::DesktopRuntimeWouldCopy),
+        runtime::RuntimePlan::Clone => runtime::clone_into(&source, &dest, &items)
+            .map(|r| RuntimeCloned {
+                items: r.items,
+                logical: r.logical,
+                on_disk: r.on_disk,
+            })
+            .map_err(|_| GuiError::StorageWriteFailed),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn desktop_clone_runtime(
+    _: &AppConfig,
+    _: Option<&Path>,
+    _: &str,
+    _: Option<&str>,
+    _: bool,
+    _: &[desktop::Instance],
+) -> Result<RuntimeCloned, GuiError> {
+    Err(GuiError::UnsupportedPlatform)
+}
+
+/// Whether a running instance has profile `name` open. `ps` gives each
+/// instance's profile directory as it was spelled at launch, and on a
+/// case-insensitive volume `Design` opens `design`.
+fn desktop_in_use(name: &str, running: &[desktop::Instance]) -> bool {
+    running.iter().any(|i| {
+        i.profile
+            .as_deref()
+            .is_some_and(|p| p.eq_ignore_ascii_case(name))
+    })
+}
+
 /// Move a managed Desktop profile to the desktop trash. Unlike `claude-acc
 /// desktop remove` there is no deleting outright, and a profile a running
 /// instance is using is refused (`desktop_running`).
@@ -1376,13 +1527,7 @@ fn desktop_remove_with(
     if !dir.is_dir() {
         return Err(GuiError::AccountMissing);
     }
-    // `ps` gives each instance's profile directory as it was spelled at
-    // launch, and on a case-insensitive volume `Design` opens `design`.
-    if running.iter().any(|i| {
-        i.profile
-            .as_deref()
-            .is_some_and(|p| p.eq_ignore_ascii_case(name))
-    }) {
+    if desktop_in_use(name, running) {
         return Err(GuiError::DesktopRunning);
     }
     to_trash(&dir)
@@ -2318,6 +2463,92 @@ mod tests {
     }
 
     #[test]
+    fn a_desktop_config_is_copied_in_and_replaced_only_when_asked() {
+        let (c, root) = fixture("desktop-config");
+        let app_profile = root.join("app-profile");
+        fs::create_dir_all(&app_profile).unwrap();
+        let dest = desktop_profile(&c, "design", None);
+        let other = desktop_profile(&c, "other", None);
+        let copy =
+            |from, force| desktop_clone_config(&c, Some(&app_profile), "design", from, force);
+        let config_of = |dir: &Path| fs::read_to_string(dir.join(desktop::CONFIG_FILE)).ok();
+
+        assert_eq!(copy(None, false), Err(GuiError::DesktopNothingToCopy));
+        fs::write(app_profile.join(desktop::CONFIG_FILE), "app").unwrap();
+        copy(None, false).unwrap();
+        assert_eq!(config_of(&dest).as_deref(), Some("app"));
+        fs::write(other.join(desktop::CONFIG_FILE), "other").unwrap();
+        assert_eq!(copy(Some("other"), false), Err(GuiError::DesktopAlreadyHas));
+        assert_eq!(config_of(&dest).as_deref(), Some("app"));
+        copy(Some("other"), true).unwrap();
+        assert_eq!(config_of(&dest).as_deref(), Some("other"));
+
+        assert_eq!(copy(Some("design"), true), Err(GuiError::InvalidAccount));
+        assert_eq!(copy(Some("DESIGN"), true), Err(GuiError::InvalidAccount));
+        assert_eq!(copy(Some("ghost"), true), Err(GuiError::AccountMissing));
+        assert_eq!(
+            desktop_clone_config(&c, None, "design", None, true),
+            Err(GuiError::UnsupportedPlatform)
+        );
+        assert_eq!(
+            desktop_clone_config(&c, Some(&app_profile), "ghost", None, true),
+            Err(GuiError::AccountMissing)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // The clone is APFS's, and so the feature is macOS's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_desktop_runtime_is_cloned_once_and_replaced_only_when_asked() {
+        use crate::desktop_runtime::BUNDLE;
+        let (c, root) = fixture("desktop-runtime");
+        let app_profile = root.join("app-profile");
+        fs::create_dir_all(app_profile.join(BUNDLE)).unwrap();
+        fs::write(app_profile.join(BUNDLE).join("rootfs.img"), "image").unwrap();
+        fs::create_dir_all(app_profile.join("claude-code/2.1.0")).unwrap();
+        fs::write(app_profile.join("claude-code/2.1.0/claude"), "binary").unwrap();
+        let dest = desktop_profile(&c, "design", None);
+        let clone =
+            |force| desktop_clone_runtime(&c, Some(&app_profile), "design", None, force, &[]);
+
+        let report = clone(false).unwrap();
+        assert_eq!((report.items, report.logical), (2, 11));
+        assert_eq!(
+            fs::read_to_string(dest.join(BUNDLE).join("rootfs.img")).unwrap(),
+            "image"
+        );
+        assert_eq!(
+            fs::read_to_string(dest.join("claude-code/2.1.0/claude")).unwrap(),
+            "binary"
+        );
+        assert_eq!(clone(false), Err(GuiError::DesktopAlreadyHas));
+        // Replacing what an open instance runs from is refused.
+        assert_eq!(
+            desktop_clone_runtime(
+                &c,
+                Some(&app_profile),
+                "design",
+                None,
+                true,
+                &[instance("Design")]
+            ),
+            Err(GuiError::DesktopRunning)
+        );
+        assert!(clone(true).is_ok());
+        // A re-clone replaces the version directory rather than nesting in it.
+        assert!(!dest.join("claude-code/2.1.0/2.1.0").exists());
+
+        let empty = root.join("empty-profile");
+        fs::create_dir_all(&empty).unwrap();
+        assert_eq!(
+            desktop_clone_runtime(&c, Some(&empty), "design", None, true, &[]),
+            Err(GuiError::DesktopNothingToCopy)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -2571,6 +2802,15 @@ mod tests {
             sample["desktop_profiles"],
             serde_json::to_value(desktop_profiles).unwrap()
         );
+        let runtime_cloned = RuntimeCloned {
+            items: 4,
+            logical: 10_737_418_240,
+            on_disk: Some(0),
+        };
+        assert_eq!(
+            sample["runtime_cloned"],
+            serde_json::to_value(runtime_cloned).unwrap()
+        );
         assert_eq!(
             sample["update_check"],
             serde_json::to_value(update_check).unwrap()
@@ -2599,6 +2839,9 @@ mod tests {
             GuiError::DesktopRunning,
             GuiError::DesktopAppMissing,
             GuiError::DesktopLaunchFailed,
+            GuiError::DesktopNothingToCopy,
+            GuiError::DesktopAlreadyHas,
+            GuiError::DesktopRuntimeWouldCopy,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -3071,6 +3314,42 @@ mod tests {
                 Err(GuiError::SymlinkStorage)
             );
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_runtime_is_not_cloned_through_a_link_in_the_profile() {
+        use crate::desktop_runtime::BUNDLE;
+        let (c, root) = fixture("desktop-runtime-link");
+        let app_profile = root.join("app-profile");
+        fs::create_dir_all(app_profile.join(BUNDLE)).unwrap();
+        fs::write(app_profile.join(BUNDLE).join("rootfs.img"), "image").unwrap();
+        let dest = desktop_profile(&c, "design", None);
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, dest.join("vm_bundles")).unwrap();
+        assert_eq!(
+            desktop_clone_runtime(&c, Some(&app_profile), "design", None, true, &[]),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        fs::remove_file(dest.join("vm_bundles")).unwrap();
+
+        // A managed source holding a link would have its target copied in.
+        let other = desktop_profile(&c, "other", None);
+        fs::create_dir_all(other.join(BUNDLE)).unwrap();
+        fs::write(outside.join("private"), "secret").unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("private"),
+            other.join(BUNDLE).join("rootfs.img"),
+        )
+        .unwrap();
+        assert_eq!(
+            desktop_clone_runtime(&c, Some(&app_profile), "design", Some("other"), true, &[]),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert!(!dest.join(BUNDLE).join("rootfs.img").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

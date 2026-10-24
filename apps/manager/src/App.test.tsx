@@ -37,6 +37,8 @@ vi.mock("./api", async (importOriginal) => ({
     desktopProfiles: vi.fn(),
     desktopOpen: vi.fn(),
     desktopRemove: vi.fn(),
+    desktopCloneConfig: vi.fn(),
+    desktopCloneRuntime: vi.fn(),
     checkUpdate: vi.fn(),
     chooseDirectory: vi.fn(),
   },
@@ -551,6 +553,67 @@ describe("desktop", () => {
     });
     await openDesktop();
     expect(screen.queryByRole("checkbox", { name: /MCP servers/ })).toBeNull();
+  });
+
+  it("copies the app's MCP config into a profile", async () => {
+    vi.mocked(api.desktopCloneConfig).mockResolvedValue(undefined);
+    await openDesktop();
+    fireEvent.click(within(row("fresh")).getByRole("button", { name: "Copy into…" }));
+    const dialog = await screen.findByRole("dialog");
+    const from = within(dialog).getByRole("combobox", { name: "From" }) as HTMLSelectElement;
+    // The app's own profile first, then the others, never the profile itself.
+    expect([...from.options].map((o) => o.textContent)).toStrictEqual([
+      "Claude Desktop's own profile",
+      "design",
+    ]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy" }));
+    await waitFor(() => expect(api.desktopCloneConfig).toHaveBeenCalledWith("fresh", null, false));
+    expect(
+      await screen.findByText(
+        "Copied the MCP servers and preferences of Claude Desktop's own profile into fresh.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("asks again before replacing a runtime, and says what the disk lost", async () => {
+    vi.mocked(api.desktopCloneRuntime)
+      .mockRejectedValueOnce("desktop_already_has")
+      .mockResolvedValue(sample.runtime_cloned);
+    await openDesktop();
+    fireEvent.click(within(row("fresh")).getByRole("button", { name: "Copy into…" }));
+    // A new choice is a new dialog, so it is looked up each time.
+    const dialog = () => screen.getByRole("dialog");
+    await screen.findByRole("dialog");
+    fireEvent.change(within(dialog()).getByRole("combobox", { name: "What" }), {
+      target: { value: "runtime" },
+    });
+    fireEvent.change(within(dialog()).getByRole("combobox", { name: "From" }), {
+      target: { value: "design" },
+    });
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Copy" }));
+    await waitFor(() =>
+      expect(api.desktopCloneRuntime).toHaveBeenCalledWith("fresh", "design", false),
+    );
+    fireEvent.click(await within(dialog()).findByRole("button", { name: "Replace" }));
+    await waitFor(() =>
+      expect(api.desktopCloneRuntime).toHaveBeenLastCalledWith("fresh", "design", true),
+    );
+    expect(
+      await screen.findByText(/^Cloned 10\.0 GB of runtime from design into fresh\. The disk lost 0\.0 GB\./),
+    ).toBeTruthy();
+  });
+
+  it("drops a refusal once the choice it was about changes", async () => {
+    vi.mocked(api.desktopCloneConfig).mockRejectedValue("desktop_already_has");
+    await openDesktop();
+    fireEvent.click(within(row("fresh")).getByRole("button", { name: "Copy into…" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Copy" }));
+    expect(await within(screen.getByRole("dialog")).findByRole("alert")).toBeTruthy();
+    fireEvent.change(within(screen.getByRole("dialog")).getByRole("combobox", { name: "From" }), {
+      target: { value: "design" },
+    });
+    expect(within(screen.getByRole("dialog")).queryByRole("alert")).toBeNull();
+    expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Copy" })).toBeTruthy();
   });
 
   it("moves a profile to the Trash after confirming", async () => {

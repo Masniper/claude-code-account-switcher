@@ -5,6 +5,7 @@ import type {
   Bindings,
   DesktopProfiles,
   Editor,
+  RuntimeCloned,
   ManagerError,
   GuiError,
   Installation,
@@ -20,6 +21,7 @@ export const sample: {
   editors: Editor[];
   update_check: UpdateCheck;
   desktop_profiles: DesktopProfiles;
+  runtime_cloned: RuntimeCloned;
   sessions: Session[];
   launch: Launch;
   installation: Installation;
@@ -107,6 +109,7 @@ export const sample: {
     ],
     app_profile_exists: true,
   },
+  runtime_cloned: { items: 4, logical: 10737418240, on_disk: 0 },
   sessions: [
     {
       id: "11111111-2222-3333-4444-555555555555",
@@ -147,6 +150,9 @@ export const sample: {
     "desktop_running",
     "desktop_app_missing",
     "desktop_launch_failed",
+    "desktop_nothing_to_copy",
+    "desktop_already_has",
+    "desktop_runtime_would_copy",
   ],
   manager_errors: [
     "cli_missing",

@@ -2,13 +2,14 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api } from "../api";
 import { Dialog, Empty, Failure, Icon } from "../components";
 import type { DesktopAction, DesktopProfile, DesktopProfiles } from "../contract";
-import { useCopy } from "../i18n";
+import { gigabytes, useCopy } from "../i18n";
 import { useNotices } from "../notices";
 
 const NAME = /^[A-Za-z0-9_-]+$/;
 
 type Pending =
   | { kind: "open"; name: string; action: DesktopAction }
+  | { kind: "copy"; name: string }
   | { kind: "remove"; name: string }
   | null;
 
@@ -50,6 +51,7 @@ export function DesktopPage() {
               key={p.name}
               profile={p}
               open={() => setPending({ kind: "open", name: p.name, action: "open" })}
+              copy={() => setPending({ kind: "copy", name: p.name })}
               remove={() => setPending({ kind: "remove", name: p.name })}
             />
           ))}
@@ -62,6 +64,16 @@ export function DesktopPage() {
           action={pending.action}
           opened={setData}
           failed={load}
+          onClose={() => setPending(null)}
+        />
+      )}
+      {pending?.kind === "copy" && data && (
+        <CopyDialog
+          name={pending.name}
+          sources={[
+            ...(data.app_profile_exists ? [null] : []),
+            ...data.profiles.map((p) => p.name).filter((n) => n !== pending.name),
+          ]}
           onClose={() => setPending(null)}
         />
       )}
@@ -89,10 +101,12 @@ export function DesktopPage() {
 function ProfileRow({
   profile: p,
   open,
+  copy,
   remove,
 }: {
   profile: DesktopProfile;
   open: () => void;
+  copy: () => void;
   remove: () => void;
 }) {
   const t = useCopy();
@@ -106,6 +120,9 @@ function ProfileRow({
         </span>
       </div>
       <button onClick={open}>{t.desktopOpen}</button>
+      <button className="quiet" onClick={copy}>
+        {t.desktopCopyAction}
+      </button>
       <button className="quiet" onClick={remove}>
         {t.trashAction}
       </button>
@@ -200,6 +217,87 @@ function OpenDialog({
       onClose={onClose}
     >
       <p>{adding ? t.desktopAddBody : t.desktopOpenBody(<strong>{name}</strong>)}</p>
+    </Dialog>
+  );
+}
+
+type What = "config" | "runtime";
+
+/**
+ * Copies the MCP config, or shares the downloaded runtime, into a profile.
+ * `null` as a source is Claude Desktop's own profile. If the profile has its
+ * own already, the same dialog asks again to replace it.
+ */
+function CopyDialog({
+  name,
+  sources,
+  onClose,
+}: {
+  name: string;
+  sources: (string | null)[];
+  onClose: () => void;
+}) {
+  const t = useCopy();
+  const { info } = useNotices();
+  const [what, setWhat] = useState<What>("config");
+  const [from, setFrom] = useState<string | null>(sources[0] ?? null);
+  const [force, setForce] = useState(false);
+  const fromLabel = (source: string | null) => source ?? t.desktopAppProfileName;
+  const choose = <T,>(set: (value: T) => void) => (value: T) => {
+    set(value);
+    setForce(false);
+  };
+  if (sources.length === 0) {
+    return (
+      <Dialog title={t.desktopCopyTitle(name)} onClose={onClose}>
+        <p>{t.desktopCopyNoSource}</p>
+      </Dialog>
+    );
+  }
+  return (
+    <Dialog
+      // A new choice is a new question: an earlier one's error goes with it.
+      key={`${what}:${from ?? ""}`}
+      title={t.desktopCopyTitle(name)}
+      confirmLabel={force ? t.desktopCopyReplace : t.desktopCopyConfirm}
+      onConfirm={async () => {
+        try {
+          if (what === "config") {
+            await api.desktopCloneConfig(name, from, force);
+            info(t.desktopConfigCopied(name, fromLabel(from)));
+          } else {
+            const done = await api.desktopCloneRuntime(name, from, force);
+            const lost = done.on_disk == null ? null : gigabytes(t, done.on_disk);
+            info(t.desktopRuntimeCloned(name, fromLabel(from), gigabytes(t, done.logical), lost));
+          }
+        } catch (failure) {
+          if (failure === "desktop_already_has") setForce(true);
+          throw failure;
+        }
+      }}
+      onClose={onClose}
+    >
+      <label>
+        {t.desktopCopyWhat}
+        <select value={what} onChange={(e) => choose(setWhat)(e.target.value as What)}>
+          <option value="config">{t.desktopCopyConfig}</option>
+          <option value="runtime">{t.desktopCopyRuntime}</option>
+        </select>
+      </label>
+      <label>
+        {t.desktopCopyFrom}
+        <select
+          value={from ?? ""}
+          onChange={(e) => choose(setFrom)(e.target.value === "" ? null : e.target.value)}
+        >
+          {sources.map((source) => (
+            <option key={source ?? ""} value={source ?? ""}>
+              {fromLabel(source)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p>{what === "config" ? t.desktopCopyConfigBody : t.desktopCopyRuntimeBody}</p>
     </Dialog>
   );
 }

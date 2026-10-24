@@ -91,6 +91,12 @@ export type DesktopProfiles = {
   app_profile_exists: boolean;
 };
 
+export type RuntimeCloned = {
+  items: number;
+  logical: number;
+  on_disk: number | null;
+};
+
 export type DesktopAction = "open" | "add" | "add_seeded";
 
 export type LaunchAction = "run" | "login" | "add" | "add_seeded";
@@ -125,7 +131,10 @@ export type GuiError =
   | "update_check_failed"
   | "desktop_running"
   | "desktop_app_missing"
-  | "desktop_launch_failed";
+  | "desktop_launch_failed"
+  | "desktop_nothing_to_copy"
+  | "desktop_already_has"
+  | "desktop_runtime_would_copy";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

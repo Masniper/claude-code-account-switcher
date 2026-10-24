@@ -377,6 +377,27 @@ const en = {
   ),
   desktopAdded: (name: string) => `Added ${name} and opened Claude Desktop on it. Sign in there.`,
   desktopOpened: (name: string) => `Opened Claude Desktop on ${name}.`,
+  desktopCopyAction: "Copy into…",
+  desktopCopyTitle: (name: string) => `Copy into ${name}?`,
+  desktopCopyWhat: "What",
+  desktopCopyConfig: "MCP servers and preferences",
+  desktopCopyRuntime: "Downloaded runtime",
+  desktopCopyFrom: "From",
+  desktopAppProfileName: "Claude Desktop's own profile",
+  desktopCopyNoSource: "There is no other profile to copy from.",
+  desktopCopyConfigBody:
+    "Copies claude_desktop_config.json, the MCP server definitions and preferences. Servers that sign in separately will ask for that again in this profile.",
+  desktopCopyRuntimeBody:
+    "Clones the downloaded runtime, about 10.5 GB, so this profile need not download its own. On APFS the clone shares the original's disk blocks until one of them changes; the notice says what the disk actually lost. Whether the app accepts a runtime put there for it is untested: if the profile misbehaves, delete its vm_bundles, claude-code and claude-code-vm folders and it fetches its own.",
+  desktopCopyConfirm: "Copy",
+  desktopCopyReplace: "Replace",
+  desktopConfigCopied: (name: string, from: string) =>
+    `Copied the MCP servers and preferences of ${from} into ${name}.`,
+  desktopRuntimeCloned: (name: string, from: string, size: string, lost: string | null) =>
+    `Cloned ${size} of runtime from ${from} into ${name}. ${
+      lost == null ? "The disk space used could not be measured." : `The disk lost ${lost}.`
+    } If the profile misbehaves, delete its vm_bundles, claude-code and claude-code-vm folders.`,
+  sizeGigabytes: (gigabytes: string) => `${gigabytes} GB`,
   desktopTrashTitle: (name: string) => `Move the Desktop profile ${name} to the Trash?`,
   desktopTrashBody: (name: ReactNode) => (
     <>
@@ -435,6 +456,11 @@ const en = {
 
   // Backend results
   errors: {
+    desktop_nothing_to_copy: "The profile chosen to copy from has nothing of that kind to copy.",
+    desktop_already_has:
+      "This profile already has its own. Confirm again to replace it with the copy.",
+    desktop_runtime_would_copy:
+      "The two profiles are on different volumes, so this would be a full copy of the runtime, not a clone. Nothing was copied.",
     desktop_running:
       "Another Claude Desktop is open. A sign-in needs every other window closed, and a profile that is open cannot be moved to the Trash. Quit it and try again.",
     desktop_app_missing:
@@ -569,6 +595,16 @@ export function describeUpdate(t: Messages, check: UpdateCheck): string {
   ].filter((line): line is string => typeof line === "string");
   if (behind.length) return behind.join(" ");
   return check.bundled == null ? t.updateUnknown(check.latest) : t.updateCurrent(check.latest);
+}
+
+/** A size in gigabytes (1024³ bytes), with the table's decimal separator. */
+export function gigabytes(t: Messages, bytes: number): string {
+  return t.sizeGigabytes(
+    (bytes / 1024 ** 3).toLocaleString(t.locale, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }),
+  );
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {

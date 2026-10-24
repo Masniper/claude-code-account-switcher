@@ -9,6 +9,7 @@ import type {
   DesktopProfiles,
   Editor,
   Installation,
+  RuntimeCloned,
   Launch,
   LaunchAction,
   Session,
@@ -45,6 +46,10 @@ export const api = {
   desktopProfiles: () => invoke<DesktopProfiles>("desktop_profiles"),
   desktopOpen: (account: string, action: DesktopAction, force: boolean) =>
     invoke<DesktopProfiles>("desktop_open", { account, action, force }),
+  desktopCloneConfig: (account: string, from: string | null, force: boolean) =>
+    invoke<void>("desktop_clone_config", { account, from, force }),
+  desktopCloneRuntime: (account: string, from: string | null, force: boolean) =>
+    invoke<RuntimeCloned>("desktop_clone_runtime", { account, from, force }),
   desktopRemove: (account: string) => invoke<DesktopProfiles>("desktop_remove", { account }),
   installation: () => invoke<Installation>("installation"),
   checkUpdate: () => invoke<UpdateCheck>("check_update"),

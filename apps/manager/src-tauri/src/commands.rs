@@ -5,7 +5,8 @@ use crate::copy::{LANG, Text, text};
 use crate::launcher::{self, Installation, Launch};
 use claude_acc::desktop;
 use claude_acc::gui::{
-    self, Bindings, DesktopAction, DesktopProfiles, Editor, LaunchAction, Session, UpdateCheck,
+    self, Bindings, DesktopAction, DesktopProfiles, Editor, LaunchAction, RuntimeCloned, Session,
+    UpdateCheck,
 };
 use tauri::{AppHandle, Manager};
 
@@ -241,6 +242,45 @@ pub async fn desktop_open(
         )?;
         gui::desktop_launch(&claude, &profile)?;
         desktop_list(app)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn desktop_clone_config(
+    app: AppHandle,
+    account: String,
+    from: Option<String>,
+    force: bool,
+) -> Result<(), AppError> {
+    blocking(app, move |app| {
+        Ok(gui::desktop_clone_config(
+            &app.state::<Backend>().config,
+            desktop::standard_profile().as_deref(),
+            &account,
+            from.as_deref(),
+            force,
+        )?)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn desktop_clone_runtime(
+    app: AppHandle,
+    account: String,
+    from: Option<String>,
+    force: bool,
+) -> Result<RuntimeCloned, AppError> {
+    blocking(app, move |app| {
+        Ok(gui::desktop_clone_runtime(
+            &app.state::<Backend>().config,
+            desktop::standard_profile().as_deref(),
+            &account,
+            from.as_deref(),
+            force,
+            &desktop::running_instances(),
+        )?)
     })
     .await
 }
