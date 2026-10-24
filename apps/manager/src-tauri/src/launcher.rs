@@ -149,6 +149,7 @@ request=$(dirname "$0")
   IFS= read -r directory
   IFS= read -r cli
   IFS= read -r action
+  IFS= read -r seed
   IFS= read -r account
   IFS= read -r exited
   IFS= read -r press_return
@@ -158,7 +159,9 @@ rm -rf -- "$request"
 export HOME="$home"
 unset CLAUDE_SECURESTORAGE_CONFIG_DIR
 cd -- "$directory" || exit 1
-"$cli" "$action" "$account"
+# A fixed word from the app, never user data, so never split from a value.
+if [ "$seed" = seed ]; then set -- --seed; else set --; fi
+"$cli" "$action" "$@" "$account"
 status=$?
 if [ "$status" -ne 0 ]; then
   printf '\n%s %s\n%s\n' "$exited" "$status" "$press_return"
@@ -177,6 +180,7 @@ exit "$status"
             r.directory.to_str(),
             r.cli.to_str(),
             Some(r.action.command()),
+            Some(if r.action.seeds() { "seed" } else { "no-seed" }),
             Some(r.account),
             Some(r.exited),
             Some(r.press_return),
@@ -332,6 +336,43 @@ mod tests {
         assert!(!request.exists(), "the launcher consumes its request");
         assert!(!root.join("INJECTED").exists());
         assert!(!project.join("INJECTED").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn only_a_seeded_add_passes_seed_to_the_cli() {
+        let root = scratch("seed");
+        let cli = fake_cli(&root);
+        for (action, account, args) in [
+            (
+                LaunchAction::AddSeeded,
+                "work",
+                "arg=add\narg=--seed\narg=work\n",
+            ),
+            (LaunchAction::Add, "work", "arg=add\narg=work\n"),
+        ] {
+            let request = root.join("request-dir");
+            fs::create_dir(&request).unwrap();
+            let body = request_body(&Request {
+                home: &root.join("home"),
+                directory: &root,
+                cli: &cli,
+                account,
+                action,
+                exited: "x",
+                press_return: "y",
+            })
+            .unwrap();
+            fs::write(request.join("request"), body).unwrap();
+            fs::write(request.join("Launch.command"), LAUNCHER).unwrap();
+            let status = std::process::Command::new("/bin/sh")
+                .arg(request.join("Launch.command"))
+                .status()
+                .unwrap();
+            assert!(status.success());
+            let seen = fs::read_to_string(root.join("seen")).unwrap();
+            assert!(seen.starts_with(args), "{action:?} {account}: {seen}");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -24,7 +24,8 @@
 //!   account's settings, as `claude-acc clone-settings` does.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
-//! - [`check_launch`]: whether `run`, `login` or `add` may start for an
+//! - [`check_launch`]: whether `run`, `login` or `add` (with or without
+//!   `--seed`) may start for an
 //!   account, and in which physical directory. The decision only; launching
 //!   is the caller's.
 //!
@@ -208,6 +209,9 @@ pub enum LaunchAction {
     Run,
     Login,
     Add,
+    /// `add --seed`: the new account starts with the standard account's
+    /// settings, as `clone-settings` would give it.
+    AddSeeded,
 }
 
 impl LaunchAction {
@@ -216,8 +220,13 @@ impl LaunchAction {
         match self {
             Self::Run => "run",
             Self::Login => "login",
-            Self::Add => "add",
+            Self::Add | Self::AddSeeded => "add",
         }
+    }
+
+    /// Whether the subcommand gets `--seed`.
+    pub fn seeds(self) -> bool {
+        self == Self::AddSeeded
     }
 }
 
@@ -851,7 +860,7 @@ pub fn check_launch(
     directory: Option<&str>,
 ) -> Result<PathBuf, GuiError> {
     match action {
-        LaunchAction::Add => {
+        LaunchAction::Add | LaunchAction::AddSeeded => {
             if !validate_name(account) || account == "default" {
                 return Err(GuiError::InvalidAccount);
             }
@@ -1364,7 +1373,23 @@ mod tests {
         assert_eq!(add("work"), Err(GuiError::AccountExists));
         assert_eq!(add("default"), Err(GuiError::InvalidAccount));
         assert_eq!(add("x; rm"), Err(GuiError::InvalidAccount));
+        // A seeded add is still an add: the same name rules.
+        let seeded = |name| check_launch(&c, &standard, name, LaunchAction::AddSeeded, None);
+        assert!(seeded("fresh").is_ok());
+        assert_eq!(seeded("work"), Err(GuiError::AccountExists));
+        assert_eq!(seeded("default"), Err(GuiError::InvalidAccount));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_seeded_add_runs_add_with_seed_and_nothing_else_does() {
+        let action: LaunchAction = serde_json::from_str(r#""add_seeded""#).unwrap();
+        assert_eq!(action, LaunchAction::AddSeeded);
+        let runs = |a: LaunchAction| (a.command(), a.seeds());
+        assert_eq!(runs(LaunchAction::AddSeeded), ("add", true));
+        assert_eq!(runs(LaunchAction::Add), ("add", false));
+        assert_eq!(runs(LaunchAction::Run), ("run", false));
+        assert_eq!(runs(LaunchAction::Login), ("login", false));
     }
 
     #[test]

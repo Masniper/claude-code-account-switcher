@@ -215,7 +215,9 @@ const en = {
   addTitle: (name: string) => `Add ${name}?`,
   addConfirm: "Create & authenticate",
   addBody:
-    "Create an isolated account using the CLI and open its login flow in Terminal. Existing settings and conversations are not copied.",
+    "Create an isolated account using the CLI and open its login flow in Terminal. Conversations are not copied.",
+  addSeedLabel:
+    "Start with the standard account's settings.json, CLAUDE.md, agents, commands, output styles, skills and plugins",
 
   // Usage and freshness
   resetPassed: "Reset passed",

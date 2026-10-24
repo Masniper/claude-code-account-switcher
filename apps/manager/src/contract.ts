@@ -64,7 +64,7 @@ export type Session = {
   duplicate: boolean;
 };
 
-export type LaunchAction = "run" | "login" | "add";
+export type LaunchAction = "run" | "login" | "add" | "add_seeded";
 export type Launch = { state: "started" | "pending" };
 
 export type Installation = {

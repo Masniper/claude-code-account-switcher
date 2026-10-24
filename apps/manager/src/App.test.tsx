@@ -314,6 +314,31 @@ describe("accounts", () => {
     expect(api.terminal).not.toHaveBeenCalled();
   });
 
+  it("adds an account plain, or seeded from the standard one when asked", async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    for (const [seeded, action] of [
+      [false, "add"],
+      [true, "add_seeded"],
+    ] as const) {
+      fireEvent.click(screen.getByRole("button", { name: "Add account" }));
+      fireEvent.change(screen.getByPlaceholderText("e.g. work"), {
+        target: { value: "fresh" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+      const dialog = await screen.findByRole("dialog");
+      const box = within(dialog).getByRole("checkbox", {
+        name: /standard account's settings/,
+      }) as HTMLInputElement;
+      // Seeding is opt-in, as `--seed` is.
+      expect(box.checked).toBe(false);
+      if (seeded) fireEvent.click(box);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Create & authenticate" }));
+      await waitFor(() => expect(api.terminal).toHaveBeenLastCalledWith("fresh", null, action));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+  });
+
   it("explains a fresh installation without fabricating an account", async () => {
     vi.mocked(api.snapshot).mockResolvedValue({
       ...snapshot(),

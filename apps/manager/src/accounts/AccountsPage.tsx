@@ -108,6 +108,7 @@ function AddAccount({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [invalid, setInvalid] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [seed, setSeed] = useState(false);
   const launch = useLaunch();
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -146,12 +147,20 @@ function AddAccount({ onDone }: { onDone: () => void }) {
           title={t.addTitle(name)}
           confirmLabel={t.addConfirm}
           onConfirm={async () => {
-            await launch(name, null, "add");
+            await launch(name, null, seed ? "add_seeded" : "add");
             onDone();
           }}
           onClose={() => setConfirming(false)}
         >
           <p>{t.addBody}</p>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={seed}
+              onChange={(e) => setSeed(e.target.checked)}
+            />
+            {t.addSeedLabel}
+          </label>
         </Dialog>
       )}
     </>
