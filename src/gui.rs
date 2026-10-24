@@ -15,6 +15,8 @@
 //! - [`bindings`]: stored directory bindings, plus the effective account for
 //!   one directory and the binding it inherits from, via `resolve_account`.
 //! - [`sessions`]: session metadata, newest first.
+//! - [`copy_session`]: one account's session copied into another, by the
+//!   same file copy as `claude-acc session copy`.
 //! - [`change_default`] and [`change_binding`]: validated writes.
 //! - [`remove_account`]: a managed account to the desktop trash, never
 //!   deleted outright.
@@ -73,6 +75,8 @@ pub enum GuiError {
     IdentityDrift,
     TrashUnavailable,
     NotSignedIn,
+    SessionMissing,
+    SessionExists,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -320,6 +324,31 @@ fn reject_symlinks(root: &Path, path: &Path) -> Result<(), GuiError> {
             Ok(_) => (),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
             Err(_) => return Err(GuiError::StorageUnreadable),
+        }
+    }
+    Ok(())
+}
+
+/// [`reject_symlinks`] for every entry below `src`, and for the path each
+/// would be copied to below `dest`. A missing `src` has nothing below it.
+fn reject_symlinks_below(
+    src_root: &Path,
+    src: &Path,
+    dest_root: &Path,
+    dest: &Path,
+) -> Result<(), GuiError> {
+    let entries = match fs::read_dir(src) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(GuiError::StorageUnreadable),
+    };
+    for entry in entries {
+        let entry = entry.map_err(|_| GuiError::StorageUnreadable)?;
+        let (from, to) = (entry.path(), dest.join(entry.file_name()));
+        reject_symlinks(src_root, &from)?;
+        reject_symlinks(dest_root, &to)?;
+        if from.is_dir() {
+            reject_symlinks_below(src_root, &from, dest_root, &to)?;
         }
     }
     Ok(())
@@ -576,6 +605,70 @@ pub fn sessions(config: &AppConfig, standard: &Path) -> Result<Vec<Session>, Gui
             size: s.size,
         })
         .collect())
+}
+
+/// Copy one account's session into another, through the same
+/// `sessions::copy_into` as `claude-acc session copy`. The source is named
+/// the way [`sessions`] lists it, by account, project and id, so unlike the
+/// CLI there is no choice between copies to make.
+///
+/// If `to` already holds a session with this id, in any project, it is
+/// replaced only with `replace`: the CLI asks before that overwrite, and
+/// the window asks instead.
+pub fn copy_session(
+    config: &AppConfig,
+    standard: &Path,
+    from: &str,
+    project: &str,
+    id: &str,
+    to: &str,
+    replace: bool,
+) -> Result<(), GuiError> {
+    // Copying a transcript onto itself; the window never offers it.
+    if from == to {
+        return Err(GuiError::InvalidAccount);
+    }
+    let src_dir = account_dir(config, standard, from)?;
+    let dest_dir = account_dir(config, standard, to)?;
+    let (src_root, dest_root) = (
+        storage_root(config, standard, from),
+        storage_root(config, standard, to),
+    );
+    reject_symlinks(src_root, &sessions::projects_dir(&src_dir))?;
+    reject_symlinks(dest_root, &sessions::projects_dir(&dest_dir))?;
+    // Found in a listing, not joined from the arguments, so a project or id
+    // sent by the window can only name a transcript that is there.
+    let src = sessions::list_in(&src_dir, from, None)
+        .into_iter()
+        .find(|s| s.project == project && s.id == id)
+        .ok_or(GuiError::SessionMissing)?;
+    let dest = sessions::destination_path(&src, &dest_dir);
+    for path in [&src.path, &src.sidecar_dir()] {
+        reject_symlinks(src_root, path)?;
+    }
+    for path in [&dest, &dest.with_extension("")] {
+        reject_symlinks(dest_root, path)?;
+    }
+    // The sidecar is copied file by file, following links, so a link
+    // anywhere below it would read or write outside the storage. Checked
+    // before anything is written, so a refusal leaves the destination as it
+    // was.
+    reject_symlinks_below(
+        src_root,
+        &src.sidecar_dir(),
+        dest_root,
+        &dest.with_extension(""),
+    )?;
+    if !replace
+        && sessions::list_in(&dest_dir, to, None)
+            .iter()
+            .any(|s| s.id == id)
+    {
+        return Err(GuiError::SessionExists);
+    }
+    sessions::copy_into(&src, &dest_dir)
+        .map(|_| ())
+        .map_err(|_| GuiError::StorageWriteFailed)
 }
 
 pub fn change_default(config: &AppConfig, standard: &Path, name: &str) -> Result<(), GuiError> {
@@ -1047,6 +1140,81 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    /// A transcript at `<account>/projects/-p/<id>.jsonl`, with a sidecar.
+    fn transcript(dir: &Path, id: &str, body: &str) -> PathBuf {
+        let project = sessions::projects_dir(dir).join("-p");
+        fs::create_dir_all(project.join(id).join("subagents")).unwrap();
+        fs::write(project.join(id).join("subagents").join("a.jsonl"), "{}\n").unwrap();
+        let path = project.join(format!("{id}.jsonl"));
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_copied_session_lands_in_the_other_account_with_its_subagents() {
+        let (c, root) = fixture("copy");
+        let standard = root.join("standard");
+        fs::create_dir_all(&standard).unwrap();
+        transcript(&c.account_path("work"), "s-1", "work's\n");
+        copy_session(&c, &standard, "work", "-p", "s-1", "default", false).unwrap();
+        let landed = standard.join("projects").join("-p");
+        assert_eq!(
+            fs::read_to_string(landed.join("s-1.jsonl")).unwrap(),
+            "work's\n"
+        );
+        assert!(
+            landed
+                .join("s-1")
+                .join("subagents")
+                .join("a.jsonl")
+                .is_file()
+        );
+        // The source is copied, not moved.
+        assert!(
+            c.account_path("work")
+                .join("projects/-p/s-1.jsonl")
+                .is_file()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_copy_already_in_the_destination_is_replaced_only_when_asked() {
+        let (c, root) = fixture("copy-replace");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("home")).unwrap();
+        transcript(&c.account_path("work"), "s-1", "new\n");
+        let theirs = transcript(&c.account_path("home"), "s-1", "old\n");
+        assert_eq!(
+            copy_session(&c, &standard, "work", "-p", "s-1", "home", false),
+            Err(GuiError::SessionExists)
+        );
+        assert_eq!(fs::read_to_string(&theirs).unwrap(), "old\n");
+        copy_session(&c, &standard, "work", "-p", "s-1", "home", true).unwrap();
+        assert_eq!(fs::read_to_string(&theirs).unwrap(), "new\n");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_copy_names_only_a_listed_session_in_another_account() {
+        let (c, root) = fixture("copy-refused");
+        let standard = root.join("standard");
+        fs::create_dir_all(c.account_path("home")).unwrap();
+        transcript(&c.account_path("work"), "s-1", "{}\n");
+        let copy = |project, id, to| copy_session(&c, &standard, "work", project, id, to, true);
+        assert_eq!(copy("-p", "s-2", "home"), Err(GuiError::SessionMissing));
+        assert_eq!(copy("-q", "s-1", "home"), Err(GuiError::SessionMissing));
+        // Joined from the arguments, this would read outside `projects`.
+        assert_eq!(
+            copy("..", "projects/-p/s-1", "home"),
+            Err(GuiError::SessionMissing)
+        );
+        assert_eq!(copy("-p", "s-1", "work"), Err(GuiError::InvalidAccount));
+        assert_eq!(copy("-p", "s-1", "ghost"), Err(GuiError::AccountMissing));
+        assert!(!c.account_path("home").join("projects").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
@@ -1240,6 +1408,8 @@ mod tests {
             GuiError::IdentityDrift,
             GuiError::TrashUnavailable,
             GuiError::NotSignedIn,
+            GuiError::SessionMissing,
+            GuiError::SessionExists,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -1323,6 +1493,59 @@ mod tests {
         );
         std::os::unix::fs::symlink(&outside, standard.join("projects")).unwrap();
         assert!(sessions(&c, &standard).unwrap().is_empty());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_session_is_not_copied_through_a_symlink_in_the_destination() {
+        let (c, root) = fixture("copy-symlink");
+        let standard = root.join("standard");
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(c.account_path("home").join("projects")).unwrap();
+        transcript(&c.account_path("work"), "s-1", "{}\n");
+        // No sidecar: only the transcript's own path is in play.
+        fs::write(c.account_path("work").join("projects/-p/s-2.jsonl"), "{}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, c.account_path("home").join("projects/-p")).unwrap();
+        for id in ["s-1", "s-2"] {
+            assert_eq!(
+                copy_session(&c, &standard, "work", "-p", id, "home", true),
+                Err(GuiError::SymlinkStorage),
+                "{id}"
+            );
+        }
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+
+        // Below the sidecar, on either side: nothing is written, the
+        // transcript included.
+        fs::remove_file(c.account_path("home").join("projects/-p")).unwrap();
+        let home_sidecar = c.account_path("home").join("projects/-p/s-1");
+        fs::create_dir_all(&home_sidecar).unwrap();
+        std::os::unix::fs::symlink(&outside, home_sidecar.join("subagents")).unwrap();
+        assert_eq!(
+            copy_session(&c, &standard, "work", "-p", "s-1", "home", true),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+        assert!(
+            !c.account_path("home")
+                .join("projects/-p/s-1.jsonl")
+                .exists()
+        );
+        fs::remove_file(home_sidecar.join("subagents")).unwrap();
+        fs::write(outside.join("private"), "secret").unwrap();
+        std::os::unix::fs::symlink(
+            outside.join("private"),
+            c.account_path("work")
+                .join("projects/-p/s-1/subagents/b.jsonl"),
+        )
+        .unwrap();
+        assert_eq!(
+            copy_session(&c, &standard, "work", "-p", "s-1", "home", true),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert!(!home_sidecar.join("subagents").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

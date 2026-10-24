@@ -113,6 +113,8 @@ export const sample: {
     "identity_drift",
     "trash_unavailable",
     "not_signed_in",
+    "session_missing",
+    "session_exists",
   ],
   manager_errors: [
     "cli_missing",

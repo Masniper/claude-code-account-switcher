@@ -86,7 +86,9 @@ export type GuiError =
   | "shared_credential_store"
   | "identity_drift"
   | "trash_unavailable"
-  | "not_signed_in";
+  | "not_signed_in"
+  | "session_missing"
+  | "session_exists";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

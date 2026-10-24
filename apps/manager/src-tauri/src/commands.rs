@@ -78,6 +78,25 @@ pub async fn list_sessions(app: AppHandle) -> Result<Vec<Session>, AppError> {
     .await
 }
 
+/// Copy a session, then list sessions again: the copy changes which ids are
+/// held in more than one account.
+#[tauri::command]
+pub async fn copy_session(
+    app: AppHandle,
+    from: String,
+    project: String,
+    id: String,
+    to: String,
+    replace: bool,
+) -> Result<Vec<Session>, AppError> {
+    blocking(app, move |app| {
+        let b = app.state::<Backend>();
+        gui::copy_session(&b.config, &b.standard, &from, &project, &id, &to, replace)?;
+        Ok(gui::sessions(&b.config, &b.standard)?)
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn open_terminal(
     app: AppHandle,

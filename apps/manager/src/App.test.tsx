@@ -23,6 +23,7 @@ vi.mock("./api", async (importOriginal) => ({
     bindings: vi.fn(),
     bind: vi.fn(),
     sessions: vi.fn(),
+    copySession: vi.fn(),
     terminal: vi.fn(),
     installation: vi.fn(),
     chooseDirectory: vi.fn(),
@@ -348,6 +349,97 @@ describe("sessions", () => {
     expect(document.querySelectorAll(".session-row")).toHaveLength(100);
     fireEvent.click(screen.getByRole("button", { name: /Show more \(150/ }));
     expect(document.querySelectorAll(".session-row")).toHaveLength(200);
+  });
+
+  const openSessions = async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: /Sessions/ }));
+    await screen.findAllByText(sample.sessions[0].id);
+  };
+  const copyButton = () =>
+    screen.getByRole("button", {
+      name: `Copy session ${sample.sessions[0].id} from work to another account`,
+    }) as HTMLButtonElement;
+
+  it("copies a session to another available account and shows the new list", async () => {
+    const original = sample.sessions[0];
+    vi.mocked(api.sessions).mockResolvedValue([original]);
+    vi.mocked(api.copySession).mockResolvedValue([
+      { ...original, duplicate: true },
+      { ...original, account: "personal", duplicate: true },
+    ]);
+    await openSessions();
+    fireEvent.click(copyButton());
+    const dialog = await screen.findByRole("dialog");
+    // Not its own account, and not the unavailable standard one.
+    const options = within(dialog)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toStrictEqual(["personal"]);
+    expect(within(dialog).queryByText(/already has a copy/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy session" }));
+    await waitFor(() =>
+      expect(api.copySession).toHaveBeenCalledWith(
+        "work",
+        original.project,
+        original.id,
+        "personal",
+        false,
+      ),
+    );
+    await waitFor(() => expect(document.querySelectorAll(".session-row")).toHaveLength(2));
+    expect(screen.getByText(/claude-acc run personal --resume/).textContent).toContain(
+      original.id,
+    );
+  });
+
+  it("asks before replacing a copy the destination already holds", async () => {
+    const original = sample.sessions[0];
+    const theirs = { ...original, account: "personal", duplicate: true };
+    vi.mocked(api.sessions).mockResolvedValue([{ ...original, duplicate: true }, theirs]);
+    vi.mocked(api.copySession).mockResolvedValue([original, theirs]);
+    await openSessions();
+    fireEvent.click(copyButton());
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/already has a copy/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Replace copy" }));
+    await waitFor(() =>
+      expect(api.copySession).toHaveBeenCalledWith(
+        "work",
+        original.project,
+        original.id,
+        "personal",
+        true,
+      ),
+    );
+  });
+
+  it("reloads the list when the destination gained a copy, so replacing is one click", async () => {
+    const original = sample.sessions[0];
+    const theirs = { ...original, account: "personal", duplicate: true };
+    vi.mocked(api.sessions)
+      .mockResolvedValueOnce([original])
+      .mockResolvedValue([{ ...original, duplicate: true }, theirs]);
+    vi.mocked(api.copySession).mockRejectedValue("session_exists");
+    await openSessions();
+    fireEvent.click(copyButton());
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy session" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "already has a copy",
+    );
+    expect(api.sessions).toHaveBeenCalledTimes(2);
+    expect(await within(dialog).findByRole("button", { name: "Replace copy" })).toBeTruthy();
+  });
+
+  it("offers no copy when no other account is available", async () => {
+    const alone = snapshot();
+    alone.accounts.find((a) => a.name === "personal")!.available = false;
+    vi.mocked(api.snapshot).mockResolvedValue(alone);
+    vi.mocked(api.sessions).mockResolvedValue([sample.sessions[0]]);
+    await openSessions();
+    expect(copyButton().disabled).toBe(true);
   });
 
   it("retries failed discovery on the same page", async () => {

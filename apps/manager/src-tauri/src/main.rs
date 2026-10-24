@@ -24,6 +24,7 @@ fn main() {
             commands::list_bindings,
             commands::set_binding,
             commands::list_sessions,
+            commands::copy_session,
             commands::open_terminal,
             commands::installation,
             commands::choose_directory,

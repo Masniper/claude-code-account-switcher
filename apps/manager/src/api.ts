@@ -24,6 +24,8 @@ export const api = {
   bind: (directory: string, account: string | null) =>
     invoke<void>("set_binding", { directory, account }),
   sessions: () => invoke<Session[]>("list_sessions"),
+  copySession: (from: string, project: string, id: string, to: string, replace: boolean) =>
+    invoke<Session[]>("copy_session", { from, project, id, to, replace }),
   terminal: (account: string, directory: string | null, action: LaunchAction) =>
     invoke<Launch>("open_terminal", { account, directory, action }),
   installation: () => invoke<Installation>("installation"),

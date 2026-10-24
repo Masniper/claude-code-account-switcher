@@ -262,19 +262,43 @@ const en = {
 
   // Sessions
   sessionsBanner:
-    "Session handoff is available through the existing CLI. This browser reads metadata only and preserves every transcript.",
+    "This browser reads session metadata only, never a transcript's content. Copying a session to another account leaves the original where it is.",
   discoveringSessions: "Discovering session metadata…",
   noSessionsTitle: "No sessions found",
   noSessionsBody: "Start Claude Code under an account to create a conversation.",
   showMore: (remaining: number) => `Show more (${remaining} remaining)`,
   sessionsFootnote:
-    "Project names are the CLI’s stored directory slugs, not reversible filesystem paths. Copying and resuming remain a CLI workflow.",
+    "Project names are the CLI’s stored directory slugs, not reversible filesystem paths. Resuming a copied session happens in Terminal.",
   modifiedUnknown: "Modified time unknown",
   sessionSize: (kilobytes: string) => `${kilobytes} KB`,
   copiesElsewhere: "Copies in multiple accounts",
+  copySessionAction: "Copy to…",
+  copySessionAria: (id: string, account: string) =>
+    `Copy session ${id} from ${account} to another account`,
+  copySessionTitle: "Copy this session to another account?",
+  copySessionBody: (account: ReactNode, id: ReactNode) => (
+    <>
+      The transcript of {id}, with its subagent transcripts, is copied from{" "}
+      {account}. The original stays where it is.
+    </>
+  ),
+  copySessionDestination: "Destination account",
+  copySessionReplaceWarning: (account: ReactNode) => (
+    <>{account} already has a copy of this session. Copying replaces it.</>
+  ),
+  copySessionCost:
+    "The prompt cache is per account, so the first message after resuming under another account re-sends the whole transcript: slower and more expensive than a normal turn.",
+  copySessionConfirm: "Copy session",
+  copySessionReplaceConfirm: "Replace copy",
+  copySessionDone: (account: string, id: string) =>
+    `Copied to ${account}. To continue it, run claude-acc run ${account} --resume ${id} in Terminal.`,
 
   // Backend results
   errors: {
+    session_missing:
+      "This session is no longer in that account, so nothing was copied. The list has been reloaded.",
+    session_exists:
+      "The destination already has a copy of this session, so nothing was copied. The list has been reloaded; confirm again to replace it.",
     not_signed_in:
       "This account has never signed in, so there is no identity to pin. Sign in first, then pin it.",
     trash_unavailable:
@@ -296,7 +320,8 @@ const en = {
       "Symlinked account storage is not supported for safety. Use the CLI to inspect this configuration.",
     storage_unreadable:
       "The account configuration could not be read. Check file permissions.",
-    storage_write_failed: "The configuration could not be saved. Check file permissions.",
+    storage_write_failed:
+      "The change could not be saved, or was saved only in part. Check file permissions and free disk space, then try again.",
     cli_missing: "The bundled CLI is missing. Reinstall Claude Accounts.",
     terminal_failed: "Terminal could not be opened.",
     launcher_failed: "The terminal launch request could not be prepared.",
