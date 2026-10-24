@@ -27,4 +27,6 @@ pub mod statusline;
 #[doc(hidden)]
 pub mod trash;
 #[doc(hidden)]
+pub mod update;
+#[doc(hidden)]
 pub mod vscode;

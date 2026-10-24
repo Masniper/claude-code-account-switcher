@@ -12,7 +12,7 @@ mod windows_invocation;
 use clap::{Parser, Subcommand};
 use claude_acc::{
     config, environment, identity, import, quoting, resolve, seed, sessions, statusline, trash,
-    vscode,
+    update, vscode,
 };
 use commands::activate::ShellSyntax;
 use config::AppConfig;
