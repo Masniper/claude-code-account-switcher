@@ -69,29 +69,10 @@ fn signin_is_possible(i18n: &I18n, force: bool) -> bool {
 }
 
 fn launch(i18n: &I18n, app: &std::path::Path, profile: &std::path::Path) -> i32 {
-    let mut cmd = desktop::launch_command(app, profile);
-    if !desktop::launch_detaches() {
-        // The app itself is the child here, and it lives as long as its
-        // window does — waiting would hang the terminal for the session.
-        return match cmd.spawn() {
-            Ok(_) => 0,
-            Err(e) => {
-                i18n.print(Msg::DesktopLaunchFailed(e.to_string()));
-                1
-            }
-        };
-    }
-    // `open` returns as soon as the app is up, so waiting costs a moment and
-    // buys a real exit status — spawning instead would report success even
-    // when the app failed to start.
-    match cmd.status() {
-        Ok(status) if status.success() => 0,
-        Ok(status) => {
-            i18n.print(Msg::DesktopLaunchFailed(status.to_string()));
-            1
-        }
+    match desktop::launch(app, profile) {
+        Ok(()) => 0,
         Err(e) => {
-            i18n.print(Msg::DesktopLaunchFailed(e.to_string()));
+            i18n.print(Msg::DesktopLaunchFailed(e));
             1
         }
     }

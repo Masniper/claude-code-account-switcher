@@ -366,6 +366,25 @@ fn launch_argv(app: &Path, profile: &Path, via_open: bool) -> (PathBuf, Vec<Stri
 /// is up, so waiting on it is cheap and reports real failures; running the
 /// executable directly means waiting would block for as long as the app is
 /// open.
+/// Open the app on `profile`. The error is the OS's or the exit status's own
+/// text, for the caller to show.
+pub fn launch(app: &Path, profile: &Path) -> Result<(), String> {
+    let mut cmd = launch_command(app, profile);
+    if !launch_detaches() {
+        // The app itself is the child here, and it lives as long as its
+        // window does — waiting would hang the caller for the session.
+        return cmd.spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    // `open` returns as soon as the app is up, so waiting costs a moment and
+    // buys a real exit status — spawning instead would report success even
+    // when the app failed to start.
+    match cmd.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(status.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 pub fn launch_detaches() -> bool {
     cfg!(target_os = "macos")
 }
