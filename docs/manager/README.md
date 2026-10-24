@@ -57,7 +57,7 @@ HOME="$PWD/artifacts/review-home" \
   "apps/manager/src-tauri/target/release/bundle/macos/Claude Accounts.app/Contents/MacOS/claude-acc-manager"
 ```
 
-The Manager workflow runs on every pull request, so it can be a required check. It skips its build steps unless `apps/manager/`, `src/` or the root manifests changed. Otherwise it runs the frontend's typecheck and tests and the crate's fmt, clippy and tests. It bundles the unsigned `.app` only after a merge to `master` or when started by hand, and publishes nothing.
+The Manager workflow has two jobs. `checks` runs on every pull request, docs-only ones included, so it can be a required check: the frontend's typecheck and tests, then the crate's fmt, clippy and tests. `bundle` builds the unsigned `.app` once `checks` passes: on a pull request only if `apps/manager/`, `src/` or the root manifests changed, and always after a merge to `master` or when started by hand. Nothing is published.
 
 ## How it fits together
 
@@ -68,7 +68,7 @@ The Manager workflow runs on every pull request, so it can be a required check. 
 
 ## Language
 
-Every string the manager shows is in one place per side: `apps/manager/src/i18n.tsx` for the window and `apps/manager/src-tauri/src/copy.rs` for the menu bar, dialogs and the Terminal prompt. Both are checked by the compiler: a language missing a string fails the build, as the CLI's `i18n.rs` does, and nothing falls back from one language to another ([#166](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/166)). Today only English is filled in. The Russian table is being written by the maintainer, and how the manager picks its language is still open.
+The manager's prose is in one place per side: `apps/manager/src/i18n.tsx` for the window and `apps/manager/src-tauri/src/copy.rs` for the menu bar, dialogs and the Terminal prompt. On both sides a language missing an entry fails the build: `tsc` checks the window's table, and `copy.rs` matches exhaustively, as the CLI's `i18n.rs` does. Neither checks that a value is translated, and nothing falls back from one language to another ([#166](https://github.com/Nemo-Illusionist/claude-code-account-switcher/issues/166)). Today only English is filled in. The Russian table is being written by the maintainer, and how the manager picks its language is still open.
 
 ## Limits
 
