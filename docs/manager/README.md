@@ -10,7 +10,7 @@ There is no published build: the manager is built from source, unsigned ([#165](
 
 ## Using it
 
-Claude Code must already be installed and on `PATH` in your Terminal login environment. The app bundles its own matching `claude-acc`, which is what it runs in Terminal, so launching, signing in and the rest of the window need no separate install. The status line and the `claude` wrapper's resume check are the exceptions: both run the CLI installed in `~/.claude-switch/bin` by `claude-acc install`.
+Claude Code must already be installed and on `PATH` in your Terminal login environment. The app bundles its own matching `claude-acc`, which is what it runs in Terminal, so launching, signing in and the rest of the window need no separate install. The status line, the `claude` wrapper's resume check and the VS Code integration are the exceptions: each runs the CLI installed in `~/.claude-switch/bin` by `claude-acc install`.
 
 1. **Accounts:** every configured account and the standard `~/.claude` one, with identity, plan, pin state and the 5-hour and 7-day windows. Details shows where each fact comes from and which CLI versions are present.
 2. **Usage:** the window opens on local records. Refresh status asks the profile and usage APIs. Every reading shows how long ago it was taken, the age keeps counting while the window is open, and after ten minutes the reading is marked stale. A window past its reset time shows "Reset passed" instead of a figure. Automatic refresh is opt-in: every 5, 15 or 30 minutes.
