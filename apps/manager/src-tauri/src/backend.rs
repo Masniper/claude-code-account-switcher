@@ -138,14 +138,19 @@ impl Backend {
         Some(self.stamp(&mut latest, last))
     }
 
-    /// The default is read from disk at every commit: a build that started
-    /// before a default change must not put the old default back.
+    /// The default and the account list are read from disk at every commit:
+    /// a build that started before a default change or a removal must not
+    /// put the old default, or the removed account, back.
     fn stamp(&self, latest: &mut Option<Latest>, mut next: Latest) -> Revisioned {
         if let Ok(default) = self.config.get_default() {
             next.snapshot
                 .snapshot
                 .mark_default(default.as_deref().unwrap_or("default"));
         }
+        next.snapshot
+            .snapshot
+            .accounts
+            .retain(|a| a.name == "default" || self.config.account_path(&a.name).is_dir());
         next.snapshot.revision += 1;
         let snapshot = next.snapshot.clone();
         *latest = Some(next);
@@ -187,6 +192,18 @@ pub fn set_default(app: &AppHandle, account: &str) -> Result<Revisioned, AppErro
     }
 }
 
+pub fn remove_account(app: &AppHandle, account: &str) -> Result<Revisioned, AppError> {
+    let backend = app.state::<Backend>();
+    gui::remove_account(&backend.config, &backend.standard, account)?;
+    match backend.commit_change() {
+        Some(snapshot) => {
+            publish(app, &snapshot);
+            Ok(snapshot)
+        }
+        None => refresh(app, false),
+    }
+}
+
 fn publish(app: &AppHandle, snapshot: &Revisioned) {
     crate::tray::update(app, &snapshot.snapshot);
     let _ = app.emit("snapshot", snapshot);
@@ -213,6 +230,41 @@ mod tests {
         cache.invalidate();
         assert_eq!(cache.get_or(|| read("0.22.0")), "0.22.0");
         assert_eq!(reads.get(), 2);
+    }
+
+    #[test]
+    fn a_build_that_saw_a_removed_account_does_not_bring_it_back() {
+        let root = std::env::temp_dir().join(format!("cc-mgr-stamp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = AppConfig {
+            base_dir: root.join("switch"),
+        };
+        config.init().unwrap();
+        std::fs::create_dir_all(config.account_path("work")).unwrap();
+        let backend = Backend::new(config, root.join("standard"));
+        let row = |name: &str| {
+            let mut a = gui::snapshot(&backend.config, &backend.standard, false)
+                .unwrap()
+                .accounts
+                .remove(0);
+            a.name = name.into();
+            a
+        };
+        // Built while "gone" still existed; committed after it was removed.
+        let built = Snapshot {
+            observed_at: 1,
+            default_account: "default".into(),
+            accounts: vec![row("default"), row("work"), row("gone")],
+        };
+        let names: Vec<_> = backend
+            .commit_build(built, false)
+            .snapshot
+            .accounts
+            .into_iter()
+            .map(|a| a.name)
+            .collect();
+        assert_eq!(names, ["default", "work"]);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

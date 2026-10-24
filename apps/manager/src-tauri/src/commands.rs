@@ -26,6 +26,11 @@ pub async fn set_default(app: AppHandle, account: String) -> Result<Revisioned, 
 }
 
 #[tauri::command]
+pub async fn remove_account(app: AppHandle, account: String) -> Result<Revisioned, AppError> {
+    blocking(app, move |app| backend::remove_account(app, &account)).await
+}
+
+#[tauri::command]
 pub async fn list_bindings(
     app: AppHandle,
     directory: Option<String>,

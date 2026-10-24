@@ -19,6 +19,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::snapshot,
             commands::set_default,
+            commands::remove_account,
             commands::list_bindings,
             commands::set_binding,
             commands::list_sessions,

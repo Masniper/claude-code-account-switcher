@@ -118,10 +118,21 @@ const en = {
   detailsAction: "Details & diagnostics",
   loginAction: "Authenticate / re-login",
   makeDefaultAction: "Make default…",
+  trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
   loginBody:
     "Open the existing Claude login flow in Terminal. Check the browser identity before signing in. Return here and refresh after the login finishes.",
+  trashTitle: (name: string) => `Move ${name} to the Trash?`,
+  trashConfirm: "Move to Trash",
+  trashBody: (name: ReactNode) => (
+    <>
+      The account directory of {name}, with its settings and sessions, moves to
+      the Trash and stays there until you empty it. Directories bound to it lose
+      their binding, and if it is the default, the standard account becomes the
+      default.
+    </>
+  ),
   defaultTitle: (name: string) => `Make ${name} the default?`,
   defaultConfirm: "Change default",
   defaultBody: (name: ReactNode) => (
@@ -245,6 +256,8 @@ const en = {
 
   // Backend results
   errors: {
+    trash_unavailable:
+      "The account could not be moved to the Trash, so nothing was removed. `claude-acc remove --purge` in Terminal deletes it outright.",
     identity_drift:
       "The account identity differs from its pin, or the pin is corrupt. Inspect it with the CLI before launching.",
     shared_credential_store:
