@@ -53,7 +53,7 @@ HOME="$PWD/artifacts/review-home" \
   "apps/manager/src-tauri/target/release/bundle/macos/Claude Accounts.app/Contents/MacOS/claude-acc-manager"
 ```
 
-The Manager workflow runs on every pull request, so it can be a required check. It skips its build steps unless `apps/manager/`, `src/` or the root manifests changed. Otherwise it runs the frontend's typecheck and tests and the crate's fmt, clippy and tests. It bundles the unsigned `.app` only after a merge to `master` or when started by hand, and publishes nothing.
+The Manager workflow has two jobs. `checks` runs on every pull request, docs-only ones included, so it can be a required check: the frontend's typecheck and tests, then the crate's fmt, clippy and tests. `bundle` builds the unsigned `.app` once `checks` passes: on a pull request only if `apps/manager/`, `src/` or the root manifests changed, and always after a merge to `master` or when started by hand. Nothing is published.
 
 ## How it fits together
 

@@ -53,7 +53,7 @@ HOME="$PWD/artifacts/review-home" \
   "apps/manager/src-tauri/target/release/bundle/macos/Claude Accounts.app/Contents/MacOS/claude-acc-manager"
 ```
 
-Workflow Manager запускается на каждый pull request, поэтому может быть обязательной проверкой. Он пропускает шаги сборки, если не изменились `apps/manager/`, `src/` и корневые манифесты; иначе запускает проверку типов и тесты фронтенда и fmt, clippy и тесты крейта. Неподписанный `.app` он собирает только после merge в `master` или при ручном запуске и ничего не публикует.
+У workflow Manager два job. `checks` запускается на каждый pull request, включая изменения только в документации, поэтому может быть обязательной проверкой: проверка типов и тесты фронтенда, затем fmt, clippy и тесты крейта. `bundle` собирает неподписанный `.app` после успешного `checks`: на pull request — только если изменились `apps/manager/`, `src/` или корневые манифесты, а после merge в `master` и при ручном запуске — всегда. Ничего не публикуется.
 
 ## Как это устроено
 
