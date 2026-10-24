@@ -23,4 +23,6 @@ pub mod seed;
 #[doc(hidden)]
 pub mod sessions;
 #[doc(hidden)]
+pub mod statusline;
+#[doc(hidden)]
 pub mod trash;
