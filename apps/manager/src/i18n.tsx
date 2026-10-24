@@ -121,6 +121,7 @@ const en = {
   pinAction: "Pin identity…",
   repinAction: "Re-pin to signed-in identity…",
   cloneSettingsAction: "Copy settings from the standard account…",
+  statuslineAction: "Install status line…",
   trashAction: "Move to Trash…",
   loginTitle: (name: string) => `Authenticate ${name}?`,
   loginConfirm: "Open login",
@@ -156,6 +157,18 @@ const en = {
   cloneSettingsDone: (name: string, items: string) => `Copied ${items} into ${name}.`,
   cloneSettingsNothing: (name: string) =>
     `Nothing to copy: ${name} already has these, or the standard account has none of them.`,
+  statuslineTitle: (name: string) => `Install the status line for ${name}?`,
+  statuslineConfirm: "Install",
+  statuslineReplaceConfirm: "Replace status line",
+  statuslineBody: (name: ReactNode) => (
+    <>
+      Add a statusLine to the settings.json of {name} that runs claude-acc
+      statusline, showing which account a session is using. The rest of the
+      file is kept.
+    </>
+  ),
+  statuslineDone: (name: string) =>
+    `Status line installed for ${name}. Restart Claude Code to see it.`,
   trashTitle: (name: string) => `Move ${name} to the Trash?`,
   trashConfirm: "Move to Trash",
   trashBody: (name: ReactNode) => (
@@ -344,6 +357,10 @@ const en = {
 
   // Backend results
   errors: {
+    cli_not_installed:
+      "The status line runs claude-acc from ~/.claude-switch/bin, which is not installed. Install the CLI with claude-acc install first.",
+    statusline_exists:
+      "This account already has a status line of its own. Confirm again to replace it; the rest of settings.json is kept.",
     import_source_refused:
       "This folder cannot be imported: it is already a managed account, is a link or keeps its sign-in files as links, holds Claude Accounts' own storage, or, for a move, holds the standard ~/.claude account.",
     session_missing:

@@ -23,6 +23,7 @@ fn main() {
             commands::import_account,
             commands::pin_account,
             commands::clone_settings,
+            commands::install_statusline,
             commands::list_bindings,
             commands::set_binding,
             commands::list_sessions,

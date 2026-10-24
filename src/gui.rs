@@ -26,6 +26,8 @@
 //!   account's settings, as `claude-acc clone-settings` does.
 //! - [`import_account`]: adopt an existing config dir as a managed
 //!   account, by the rules of `claude-acc import`.
+//! - [`install_statusline`]: point an account's Claude Code at `claude-acc
+//!   statusline`, as `claude-acc statusline --install` does.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -56,9 +58,9 @@
 //! and anything above them, may be symlinks. There is no notion of a global
 //! "active" account; `is_default` is only the configured fallback for
 //! unbound directories.
-use crate::config::{AppConfig, validate_name};
+use crate::config::{AppConfig, binary_name, validate_name};
 use crate::import::{self, Refusal};
-use crate::{identity, resolve, seed, sessions, trash};
+use crate::{identity, resolve, seed, sessions, statusline, trash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -86,6 +88,8 @@ pub enum GuiError {
     SessionMissing,
     SessionExists,
     ImportSourceRefused,
+    CliNotInstalled,
+    StatuslineExists,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -944,6 +948,67 @@ fn import_account_with(
     Ok(())
 }
 
+/// Write the `statusLine` block that runs `claude-acc statusline` into an
+/// account's `settings.json`, as `claude-acc statusline --install` does, for
+/// a named account rather than the one the working directory resolves to.
+///
+/// Where it departs from the CLI, on purpose:
+/// - a `settings.json` that is not a JSON object is refused
+///   (`storage_unreadable`), never replaced by a file holding only the
+///   status line;
+/// - a `statusLine` of someone else's is replaced only with `replace`
+///   (`statusline_exists`); the block this writes is not;
+/// - the command runs the CLI installed under the switch directory, so
+///   without one there it is `cli_not_installed`;
+/// - the file is replaced by a rename, so an interrupted write cannot leave
+///   it half-written; its mode is carried over, a hard link to it is not.
+pub fn install_statusline(
+    config: &AppConfig,
+    standard: &Path,
+    name: &str,
+    replace: bool,
+) -> Result<(), GuiError> {
+    let dir = account_dir(config, standard, name)?;
+    let settings = dir.join("settings.json");
+    // A rename would replace a link with a file: a `settings.json` kept in
+    // dotfiles would stop being shared without anyone noticing.
+    reject_symlinks(storage_root(config, standard, name), &settings)?;
+    if !config.base_dir.join("bin").join(binary_name()).is_file() {
+        return Err(GuiError::CliNotInstalled);
+    }
+    let mut root = match fs::read_to_string(&settings) {
+        Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .filter(serde_json::Value::is_object)
+            .ok_or(GuiError::StorageUnreadable)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(_) => return Err(GuiError::StorageUnreadable),
+    };
+    let entry = statusline::entry(&config.base_dir);
+    match root.get("statusLine") {
+        Some(existing) if *existing == entry => return Ok(()),
+        Some(_) if !replace => return Err(GuiError::StatuslineExists),
+        _ => (),
+    }
+    root["statusLine"] = entry;
+    let mut text = serde_json::to_string_pretty(&root).map_err(|_| GuiError::StorageWriteFailed)?;
+    text.push('\n');
+    let staged = dir.join("settings.json.claude-acc-tmp");
+    fs::write(&staged, text)
+        .and_then(|_| {
+            // The rename gives the file the staged copy's mode; keep the
+            // original's, which may be 0600 for an `env` holding a key.
+            if let Ok(meta) = fs::metadata(&settings) {
+                fs::set_permissions(&staged, meta.permissions())?;
+            }
+            fs::rename(&staged, &settings)
+        })
+        .map_err(|_| {
+            let _ = fs::remove_file(&staged);
+            GuiError::StorageWriteFailed
+        })
+}
+
 /// Pin an account to the identity it is signed in as now, as `claude-acc
 /// lock` does. Pinning the identity it is already pinned to does nothing.
 /// A pin to someone else, or one that cannot be read, is replaced only with
@@ -1590,6 +1655,93 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    fn installed_cli(c: &AppConfig) {
+        fs::create_dir_all(c.base_dir.join("bin")).unwrap();
+        fs::write(c.base_dir.join("bin").join(binary_name()), "").unwrap();
+    }
+
+    fn settings_of(c: &AppConfig, name: &str) -> serde_json::Value {
+        let raw = fs::read_to_string(c.account_path(name).join("settings.json")).unwrap();
+        serde_json::from_str(&raw).unwrap()
+    }
+
+    #[test]
+    fn the_status_line_is_added_beside_the_accounts_own_settings() {
+        let (c, root) = fixture("statusline");
+        let standard = root.join("standard");
+        installed_cli(&c);
+        let settings = c.account_path("work").join("settings.json");
+        fs::write(&settings, r#"{"model":"opus","env":{"A":"1"}}"#).unwrap();
+        install_statusline(&c, &standard, "work", false).unwrap();
+        let written = settings_of(&c, "work");
+        assert_eq!(written["model"], "opus");
+        assert_eq!(written["env"]["A"], "1");
+        assert_eq!(written["statusLine"], statusline::entry(&c.base_dir));
+        let bin = c.base_dir.join("bin").join(binary_name());
+        assert_eq!(
+            written["statusLine"]["command"],
+            format!("{} statusline", bin.display()).replace('\\', "/")
+        );
+        // Ours already: nothing to ask, nothing to change.
+        install_statusline(&c, &standard, "work", false).unwrap();
+        assert!(
+            !c.account_path("work")
+                .join("settings.json.claude-acc-tmp")
+                .exists()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_status_line_of_the_users_own_is_replaced_only_when_asked() {
+        let (c, root) = fixture("statusline-own");
+        let standard = root.join("standard");
+        installed_cli(&c);
+        let settings = c.account_path("work").join("settings.json");
+        let theirs = r#"{"statusLine":{"type":"command","command":"~/my-line.sh"}}"#;
+        fs::write(&settings, theirs).unwrap();
+        assert_eq!(
+            install_statusline(&c, &standard, "work", false),
+            Err(GuiError::StatuslineExists)
+        );
+        assert_eq!(fs::read_to_string(&settings).unwrap(), theirs);
+        install_statusline(&c, &standard, "work", true).unwrap();
+        assert_eq!(
+            settings_of(&c, "work")["statusLine"],
+            statusline::entry(&c.base_dir)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn unreadable_settings_or_no_installed_cli_change_nothing() {
+        let (c, root) = fixture("statusline-refused");
+        let standard = root.join("standard");
+        let settings = c.account_path("work").join("settings.json");
+        assert_eq!(
+            install_statusline(&c, &standard, "work", true),
+            Err(GuiError::CliNotInstalled)
+        );
+        assert!(!settings.exists());
+        installed_cli(&c);
+        // Regression guard: the CLI replaces these with a file holding only
+        // the status line, losing everything else in it.
+        for broken in ["{ not json", "[1, 2]"] {
+            fs::write(&settings, broken).unwrap();
+            assert_eq!(
+                install_statusline(&c, &standard, "work", true),
+                Err(GuiError::StorageUnreadable),
+                "{broken}"
+            );
+            assert_eq!(fs::read_to_string(&settings).unwrap(), broken);
+        }
+        assert_eq!(
+            install_statusline(&c, &standard, "ghost", true),
+            Err(GuiError::AccountMissing)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
@@ -1822,6 +1974,8 @@ mod tests {
             GuiError::SessionMissing,
             GuiError::SessionExists,
             GuiError::ImportSourceRefused,
+            GuiError::CliNotInstalled,
+            GuiError::StatuslineExists,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -2107,6 +2261,39 @@ mod tests {
             Err(GuiError::ImportSourceRefused)
         );
         assert!(!c.account_path("fresh").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installing_the_status_line_keeps_a_private_settings_file_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let (c, root) = fixture("statusline-mode");
+        installed_cli(&c);
+        let settings = c.account_path("work").join("settings.json");
+        fs::write(&settings, r#"{"env":{"ANTHROPIC_API_KEY":"x"}}"#).unwrap();
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+        install_statusline(&c, &root.join("standard"), "work", false).unwrap();
+        let mode = fs::metadata(&settings).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_settings_file_kept_as_a_link_is_not_replaced_by_a_copy() {
+        let (c, root) = fixture("statusline-link");
+        installed_cli(&c);
+        let dotfiles = root.join("dotfiles-settings.json");
+        fs::write(&dotfiles, "{}").unwrap();
+        let settings = c.account_path("work").join("settings.json");
+        std::os::unix::fs::symlink(&dotfiles, &settings).unwrap();
+        assert_eq!(
+            install_statusline(&c, &root.join("standard"), "work", true),
+            Err(GuiError::SymlinkStorage)
+        );
+        assert!(settings.is_symlink());
+        assert_eq!(fs::read_to_string(&dotfiles).unwrap(), "{}");
         fs::remove_dir_all(root).unwrap();
     }
 

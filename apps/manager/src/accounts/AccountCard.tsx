@@ -10,7 +10,15 @@ const blocked = (lock: LockStatus) => lock === "drift" || lock === "corrupt";
 const title = (t: Messages, a: Account) =>
   a.name === "default" ? t.standardAccount : a.name;
 
-type Open = "details" | "login" | "default" | "remove" | "pin" | "clone" | null;
+type Open =
+  | "details"
+  | "login"
+  | "default"
+  | "remove"
+  | "pin"
+  | "clone"
+  | "statusline"
+  | null;
 
 export function AccountCard({
   account: a,
@@ -135,6 +143,9 @@ export function AccountCard({
                 {t.cloneSettingsAction}
               </button>
             )}
+            <button disabled={!a.available} onClick={() => setOpen("statusline")}>
+              {t.statuslineAction}
+            </button>
             {a.name !== "default" && (
               <button onClick={() => setOpen("remove")}>{t.trashAction}</button>
             )}
@@ -193,6 +204,7 @@ export function AccountCard({
           <p>{t.cloneSettingsBody(<strong>{a.name}</strong>)}</p>
         </Dialog>
       )}
+      {open === "statusline" && <StatuslineDialog name={a.name} onClose={close} />}
       {open === "remove" && (
         <Dialog
           title={t.trashTitle(a.name)}
@@ -204,6 +216,34 @@ export function AccountCard({
         </Dialog>
       )}
     </article>
+  );
+}
+
+/**
+ * Asks once; if the account turns out to have a status line of its own, the
+ * same dialog asks again to replace it.
+ */
+function StatuslineDialog({ name, onClose }: { name: string; onClose: () => void }) {
+  const t = useCopy();
+  const { info } = useNotices();
+  const [replace, setReplace] = useState(false);
+  return (
+    <Dialog
+      title={t.statuslineTitle(name)}
+      confirmLabel={replace ? t.statuslineReplaceConfirm : t.statuslineConfirm}
+      onConfirm={async () => {
+        try {
+          await api.installStatusline(name, replace);
+        } catch (failure) {
+          if (failure === "statusline_exists") setReplace(true);
+          throw failure;
+        }
+        info(t.statuslineDone(name));
+      }}
+      onClose={onClose}
+    >
+      <p>{t.statuslineBody(<strong>{name}</strong>)}</p>
+    </Dialog>
   );
 }
 

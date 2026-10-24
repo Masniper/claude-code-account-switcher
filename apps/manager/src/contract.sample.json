@@ -96,7 +96,9 @@
     "not_signed_in",
     "session_missing",
     "session_exists",
-    "import_source_refused"
+    "import_source_refused",
+    "cli_not_installed",
+    "statusline_exists"
   ],
   "manager_errors": [
     "cli_missing",

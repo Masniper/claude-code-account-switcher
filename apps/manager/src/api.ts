@@ -22,6 +22,8 @@ export const api = {
   pinAccount: (account: string, force: boolean) =>
     invoke<Snapshot>("pin_account", { account, force }),
   cloneSettings: (account: string) => invoke<string[]>("clone_settings", { account }),
+  installStatusline: (account: string, replace: boolean) =>
+    invoke<void>("install_statusline", { account, replace }),
   bindings: (directory: string | null) =>
     invoke<Bindings>("list_bindings", { directory }),
   bind: (directory: string, account: string | null) =>

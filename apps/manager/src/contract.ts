@@ -89,7 +89,9 @@ export type GuiError =
   | "not_signed_in"
   | "session_missing"
   | "session_exists"
-  | "import_source_refused";
+  | "import_source_refused"
+  | "cli_not_installed"
+  | "statusline_exists";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

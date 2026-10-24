@@ -62,6 +62,24 @@ pub async fn clone_settings(app: AppHandle, account: String) -> Result<Vec<Strin
 }
 
 #[tauri::command]
+pub async fn install_statusline(
+    app: AppHandle,
+    account: String,
+    replace: bool,
+) -> Result<(), AppError> {
+    blocking(app, move |app| {
+        let b = app.state::<Backend>();
+        Ok(gui::install_statusline(
+            &b.config,
+            &b.standard,
+            &account,
+            replace,
+        )?)
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn list_bindings(
     app: AppHandle,
     directory: Option<String>,

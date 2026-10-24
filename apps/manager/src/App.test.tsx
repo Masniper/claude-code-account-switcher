@@ -22,6 +22,7 @@ vi.mock("./api", async (importOriginal) => ({
     importAccount: vi.fn(),
     pinAccount: vi.fn(),
     cloneSettings: vi.fn(),
+    installStatusline: vi.fn(),
     bindings: vi.fn(),
     bind: vi.fn(),
     sessions: vi.fn(),
@@ -225,6 +226,24 @@ describe("accounts", () => {
     fireEvent.click(within(card("work")).getByText("Copy settings from the standard account…"));
     fireEvent.click(screen.getByRole("button", { name: "Copy settings" }));
     expect(await screen.findByText(/^Nothing to copy: work already has these/)).toBeTruthy();
+  });
+
+  it("installs the status line, asking again before replacing one of the user's own", async () => {
+    vi.mocked(api.installStatusline)
+      .mockRejectedValueOnce("statusline_exists")
+      .mockResolvedValue(undefined);
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(within(card("work")).getByText("Install status line…"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
+    await waitFor(() => expect(api.installStatusline).toHaveBeenCalledWith("work", false));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain(
+      "status line of its own",
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Replace status line" }));
+    await waitFor(() => expect(api.installStatusline).toHaveBeenLastCalledWith("work", true));
+    expect(await screen.findByText(/^Status line installed for work\./)).toBeTruthy();
   });
 
   it("closes an account's action menu once used, or on a click elsewhere", async () => {

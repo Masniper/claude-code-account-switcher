@@ -116,6 +116,8 @@ export const sample: {
     "session_missing",
     "session_exists",
     "import_source_refused",
+    "cli_not_installed",
+    "statusline_exists",
   ],
   manager_errors: [
     "cli_missing",
