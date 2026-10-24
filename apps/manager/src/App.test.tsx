@@ -34,6 +34,7 @@ vi.mock("./api", async (importOriginal) => ({
     vscodeUninstall: vi.fn(),
     terminal: vi.fn(),
     installation: vi.fn(),
+    checkUpdate: vi.fn(),
     chooseDirectory: vi.fn(),
   },
 }));
@@ -451,6 +452,55 @@ describe("projects", () => {
     await waitFor(() =>
       expect(api.bind).toHaveBeenCalledWith("/Projects/nested", "personal"),
     );
+  });
+});
+
+describe("updates", () => {
+  const check = async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: "Check for updates…" }));
+    expect(api.checkUpdate).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Check" }));
+    await waitFor(() => expect(api.checkUpdate).toHaveBeenCalled());
+  };
+
+  it("names each CLI that is behind, and how it is updated", async () => {
+    vi.mocked(api.checkUpdate).mockResolvedValue({
+      ...sample.update_check,
+      bundled: "0.21.0",
+      bundled_outdated: true,
+    });
+    await check();
+    const notice = (await screen.findByText(/^claude-acc 0\.22\.0 is out/)).textContent!;
+    expect(notice).toContain("this app's CLI is 0.21.0");
+    expect(notice).toContain("installed CLI is 0.21.0. Run claude-acc update");
+  });
+
+  it("says nothing is behind only when every known version is current", async () => {
+    vi.mocked(api.checkUpdate).mockResolvedValue({
+      ...sample.update_check,
+      installed: null,
+      installed_outdated: false,
+    });
+    await check();
+    expect(
+      await screen.findByText(
+        "No CLI here is known to be behind: the latest claude-acc release is 0.22.0.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("does not call an unknown version up to date", async () => {
+    vi.mocked(api.checkUpdate).mockResolvedValue({
+      ...sample.update_check,
+      bundled: null,
+      installed: null,
+      installed_outdated: false,
+    });
+    await check();
+    expect(await screen.findByText(/did not report its version/)).toBeTruthy();
+    expect(screen.queryByText(/known to be behind/)).toBeNull();
   });
 });
 

@@ -88,6 +88,13 @@
       "other_profiles": true
     }
   ],
+  "update_check": {
+    "latest": "0.22.0",
+    "bundled": "0.22.0",
+    "bundled_outdated": false,
+    "installed": "0.21.0",
+    "installed_outdated": true
+  },
   "sessions": [
     {
       "id": "11111111-2222-3333-4444-555555555555",
@@ -117,6 +124,7 @@
     "import_source_refused",
     "cli_not_installed",
     "statusline_exists",
-    "unsupported_platform"
+    "unsupported_platform",
+    "update_check_failed"
   ]
 }

@@ -72,6 +72,14 @@ export type Editor = {
   other_profiles: boolean;
 };
 
+export type UpdateCheck = {
+  latest: string;
+  bundled: string | null;
+  bundled_outdated: boolean;
+  installed: string | null;
+  installed_outdated: boolean;
+};
+
 export type LaunchAction = "run" | "login" | "add" | "add_seeded";
 export type Launch = { state: "started" | "pending" };
 
@@ -100,7 +108,8 @@ export type GuiError =
   | "import_source_refused"
   | "cli_not_installed"
   | "statusline_exists"
-  | "unsupported_platform";
+  | "unsupported_platform"
+  | "update_check_failed";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

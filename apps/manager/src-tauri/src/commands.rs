@@ -3,7 +3,7 @@
 use crate::backend::{self, AppError, Backend, Revisioned};
 use crate::copy::{LANG, Text, text};
 use crate::launcher::{self, Installation, Launch};
-use claude_acc::gui::{self, Bindings, Editor, LaunchAction, Session};
+use claude_acc::gui::{self, Bindings, Editor, LaunchAction, Session, UpdateCheck};
 use tauri::{AppHandle, Manager};
 
 async fn blocking<T: Send + 'static>(
@@ -205,6 +205,19 @@ pub async fn open_terminal(
 #[tauri::command]
 pub async fn installation(app: AppHandle) -> Result<Installation, AppError> {
     blocking(app, |app| Ok(app.state::<Backend>().installation())).await
+}
+
+/// Compares with the versions Details shows, read again for each check.
+#[tauri::command]
+pub async fn check_update(app: AppHandle) -> Result<UpdateCheck, AppError> {
+    blocking(app, |app| {
+        let installation = app.state::<Backend>().fresh_installation();
+        Ok(gui::check_update(
+            &installation.bundled_version,
+            installation.installed_version.as_deref(),
+        )?)
+    })
+    .await
 }
 
 #[tauri::command]

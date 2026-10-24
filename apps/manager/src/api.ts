@@ -11,6 +11,7 @@ import type {
   LaunchAction,
   Session,
   Snapshot,
+  UpdateCheck,
 } from "./contract";
 
 export const api = {
@@ -40,6 +41,7 @@ export const api = {
   terminal: (account: string, directory: string | null, action: LaunchAction) =>
     invoke<Launch>("open_terminal", { account, directory, action }),
   installation: () => invoke<Installation>("installation"),
+  checkUpdate: () => invoke<UpdateCheck>("check_update"),
   chooseDirectory: () => invoke<string | null>("choose_directory"),
 };
 

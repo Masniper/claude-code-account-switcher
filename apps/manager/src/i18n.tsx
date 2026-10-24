@@ -24,6 +24,7 @@ import type {
   IdentitySource,
   Launch,
   LockStatus,
+  UpdateCheck,
   UsageSource,
 } from "./contract";
 
@@ -64,6 +65,19 @@ const en = {
   manualOnly: "Manual only",
   everyMinutes: (minutes: number) => `Every ${minutes} min`,
   sidebarFooter: "LOCAL & PRIVATE",
+  updateCheckAction: "Check for updates…",
+  updateCheckTitle: "Check for a newer claude-acc?",
+  updateCheckConfirm: "Check",
+  updateCheckBody:
+    "Ask GitHub for the latest claude-acc release and compare it with this app's CLI and the one installed in ~/.claude-switch/bin. Nothing is downloaded or installed.",
+  updateCurrent: (latest: string) =>
+    `No CLI here is known to be behind: the latest claude-acc release is ${latest}.`,
+  updateUnknown: (latest: string) =>
+    `The latest claude-acc release is ${latest}. This app's CLI did not report its version, so it cannot be compared.`,
+  updateBundled: (latest: string, bundled: string) =>
+    `claude-acc ${latest} is out; this app's CLI is ${bundled}. Rebuilding the app from that release brings the new one.`,
+  updateInstalled: (latest: string, installed: string) =>
+    `claude-acc ${latest} is out; the installed CLI is ${installed}. Run claude-acc update in Terminal to update it.`,
   version: (version: string) => `v${version}`,
   refreshTitle: "Refresh live identity and usage (⌘R)",
   refreshing: "Refreshing…",
@@ -381,6 +395,8 @@ const en = {
 
   // Backend results
   errors: {
+    update_check_failed:
+      "GitHub could not be asked for the latest release. Check the connection and try again.",
     unsupported_platform: "This is not available on this platform yet.",
     cli_not_installed:
       "This runs claude-acc from ~/.claude-switch/bin, which is not installed. Install the CLI with claude-acc install first.",
@@ -496,6 +512,18 @@ export function kilobytes(t: Messages, bytes: number): string {
 /** Items joined the table's way: "a, b, and c" in English. */
 export function list(t: Messages, items: string[]): string {
   return new Intl.ListFormat(t.locale, { type: "conjunction" }).format(items);
+}
+
+/** One notice for an update check, naming each CLI that is behind. */
+export function describeUpdate(t: Messages, check: UpdateCheck): string {
+  const behind = [
+    check.bundled_outdated && check.bundled && t.updateBundled(check.latest, check.bundled),
+    check.installed_outdated &&
+      check.installed &&
+      t.updateInstalled(check.latest, check.installed),
+  ].filter((line): line is string => typeof line === "string");
+  if (behind.length) return behind.join(" ");
+  return check.bundled == null ? t.updateUnknown(check.latest) : t.updateCurrent(check.latest);
 }
 
 export function describeLaunch(t: Messages, account: string, launch: Launch): string {

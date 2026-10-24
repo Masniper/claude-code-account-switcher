@@ -38,7 +38,7 @@ pub struct Installation {
     /// The bundled CLI's version, as it reports it; "unknown" if it would not.
     pub bundled_version: String,
     pub bundled_available: bool,
-    /// `claude-acc --version` of a separately installed CLI, if any.
+    /// The version a separately installed CLI reports, if there is one.
     pub installed_version: Option<String>,
 }
 
@@ -55,17 +55,20 @@ fn sidecar() -> Result<PathBuf, AppError> {
     path.is_file().then_some(path).ok_or(AppError::CliMissing)
 }
 
-/// `<cli> --version`, trimmed, or `None` if it is missing or will not say.
+/// The version `<cli> --version` reports, without the `claude-acc ` it
+/// starts with, or `None` if it is missing or will not say.
 fn version_of(cli: &Path) -> Option<String> {
     let out = std::process::Command::new(cli)
         .arg("--version")
         .output()
         .ok()
         .filter(|o| o.status.success())?;
-    Some(String::from_utf8(out.stdout).ok()?.trim().to_string())
+    let said = String::from_utf8(out.stdout).ok()?;
+    Some(said.trim().trim_start_matches("claude-acc ").to_string())
 }
 
-/// Diagnostics only: runs both CLIs, so callers cache the answer.
+/// Runs both CLIs, so callers cache the answer; Details and the update
+/// check read it.
 pub fn installation(base_dir: &Path) -> Installation {
     let installed = base_dir.join("bin").join(CLI_NAME);
     let bundled = sidecar().ok();
@@ -73,7 +76,6 @@ pub fn installation(base_dir: &Path) -> Installation {
         bundled_version: bundled
             .as_deref()
             .and_then(version_of)
-            .map(|v| v.trim_start_matches("claude-acc ").to_string())
             .unwrap_or_else(|| "unknown".into()),
         bundled_available: bundled.is_some(),
         installed_version: installed
@@ -373,6 +375,23 @@ mod tests {
             let seen = fs::read_to_string(root.join("seen")).unwrap();
             assert!(seen.starts_with(args), "{action:?} {account}: {seen}");
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn the_installed_version_is_read_without_the_programs_name() {
+        // Regression: the bundled CLI's version had `claude-acc ` stripped
+        // and the installed one's did not, so the two never compared.
+        let root = scratch("version");
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let cli = bin.join(CLI_NAME);
+        fs::write(&cli, "#!/bin/sh\necho 'claude-acc 9.8.7'\n").unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            installation(&root).installed_version.as_deref(),
+            Some("9.8.7")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

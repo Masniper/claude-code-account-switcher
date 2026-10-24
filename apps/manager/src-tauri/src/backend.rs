@@ -110,6 +110,13 @@ impl Backend {
             .get_or(|| launcher::installation(&self.config.base_dir))
     }
 
+    /// Read again now, not from the cache: an update check has to see a
+    /// `claude-acc update` run since the last one.
+    pub fn fresh_installation(&self) -> Installation {
+        self.installation.invalidate();
+        self.installation()
+    }
+
     fn latest(&self) -> MutexGuard<'_, Option<Latest>> {
         self.latest.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -276,6 +283,42 @@ mod tests {
         cache.invalidate();
         assert_eq!(cache.get_or(|| read("0.22.0")), "0.22.0");
         assert_eq!(reads.get(), 2);
+    }
+
+    // A shell-script stand-in for the installed CLI.
+    #[cfg(unix)]
+    #[test]
+    fn an_update_check_sees_a_cli_updated_since_details_read_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("cc-mgr-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let config = AppConfig {
+            base_dir: root.join("switch"),
+        };
+        let bin = config.base_dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let cli = bin.join(claude_acc::config::binary_name());
+        let say = |version: &str| {
+            std::fs::write(&cli, format!("#!/bin/sh\necho 'claude-acc {version}'\n")).unwrap();
+            std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o700)).unwrap();
+        };
+        say("0.21.0");
+        let backend = Backend::new(config, root.join("standard"));
+        assert_eq!(
+            backend.installation().installed_version.as_deref(),
+            Some("0.21.0")
+        );
+        say("0.22.0");
+        // Details keeps its cached reading; the check does not.
+        assert_eq!(
+            backend.installation().installed_version.as_deref(),
+            Some("0.21.0")
+        );
+        assert_eq!(
+            backend.fresh_installation().installed_version.as_deref(),
+            Some("0.22.0")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

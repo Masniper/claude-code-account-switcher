@@ -30,6 +30,8 @@
 //!   statusline`, as `claude-acc statusline --install` does.
 //! - [`vscode_editors`], [`vscode_install`] and [`vscode_uninstall`]: the
 //!   VS Code process wrapper, by the rules of `claude-acc vscode`.
+//! - [`check_update`]: the latest `claude-acc` release against the bundled
+//!   and installed CLIs, as `claude-acc update --check` reports it.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -62,7 +64,7 @@
 //! unbound directories.
 use crate::config::{AppConfig, binary_name, validate_name};
 use crate::import::{self, Refusal};
-use crate::{identity, resolve, seed, sessions, statusline, trash, vscode};
+use crate::{identity, resolve, seed, sessions, statusline, trash, update, vscode};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -93,6 +95,7 @@ pub enum GuiError {
     CliNotInstalled,
     StatuslineExists,
     UnsupportedPlatform,
+    UpdateCheckFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -239,6 +242,19 @@ pub struct Editor {
     /// Profiles beyond the default one read their own settings, not the file
     /// this writes.
     pub other_profiles: bool,
+}
+
+/// The latest release against the two CLIs a user can have. A version that
+/// is unknown or does not parse is `None` and never counted as outdated.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct UpdateCheck {
+    pub latest: String,
+    /// The CLI bundled with the app; a newer app replaces it.
+    pub bundled: Option<String>,
+    pub bundled_outdated: bool,
+    /// The CLI under the switch directory; `claude-acc update` replaces it.
+    pub installed: Option<String>,
+    pub installed_outdated: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1162,6 +1178,36 @@ fn vscode_uninstall_in(config: &AppConfig, editors_root: &Path) -> Result<Vec<Ed
     Ok(vscode_editors_in(config, editors_root))
 }
 
+/// Ask GitHub for the latest `claude-acc` release, as `claude-acc update
+/// --check` does, and compare it with the bundled and installed CLIs'
+/// versions, as their owner read them. Nothing is downloaded.
+pub fn check_update(bundled: &str, installed: Option<&str>) -> Result<UpdateCheck, GuiError> {
+    check_update_with(bundled, installed, || {
+        update::latest_release_tag(&update::repo_slug(update::REPO_URL)?)
+    })
+}
+
+fn check_update_with(
+    bundled: &str,
+    installed: Option<&str>,
+    latest_tag: impl FnOnce() -> Option<String>,
+) -> Result<UpdateCheck, GuiError> {
+    let latest = latest_tag()
+        .as_deref()
+        .and_then(update::normalize_version)
+        .ok_or(GuiError::UpdateCheckFailed)?;
+    let bundled = update::normalize_version(bundled);
+    let installed = installed.and_then(update::normalize_version);
+    let outdated = |v: &Option<String>| v.as_deref().is_some_and(|v| update::is_newer(&latest, v));
+    Ok(UpdateCheck {
+        bundled_outdated: outdated(&bundled),
+        installed_outdated: outdated(&installed),
+        latest,
+        bundled,
+        installed,
+    })
+}
+
 /// Pin an account to the identity it is signed in as now, as `claude-acc
 /// lock` does. Pinning the identity it is already pinned to does nothing.
 /// A pin to someone else, or one that cannot be read, is replaced only with
@@ -1896,6 +1942,43 @@ mod tests {
     }
 
     #[test]
+    fn an_update_check_compares_each_known_version_with_the_latest() {
+        let check = |bundled, installed, tag: Option<&str>| {
+            check_update_with(bundled, installed, || tag.map(String::from))
+        };
+        assert_eq!(
+            check("0.21.0", Some("0.20.1"), Some("v0.21.0")),
+            Ok(UpdateCheck {
+                latest: "0.21.0".into(),
+                bundled: Some("0.21.0".into()),
+                bundled_outdated: false,
+                installed: Some("0.20.1".into()),
+                installed_outdated: true,
+            })
+        );
+        // Unknown is not up to date, it is unknown.
+        let unknown = check("unknown", None, Some("v1.0.0")).unwrap();
+        assert_eq!((unknown.bundled, unknown.bundled_outdated), (None, false));
+        assert_eq!(
+            (unknown.installed, unknown.installed_outdated),
+            (None, false)
+        );
+        // A newer local build is not behind an older release.
+        assert!(
+            !check("0.30.0", None, Some("v0.29.9"))
+                .unwrap()
+                .bundled_outdated
+        );
+        for tag in [None, Some("nightly")] {
+            assert_eq!(
+                check("0.21.0", None, tag),
+                Err(GuiError::UpdateCheckFailed),
+                "{tag:?}"
+            );
+        }
+    }
+
+    #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
         let standard = root.join("home").join(".claude");
@@ -2123,6 +2206,17 @@ mod tests {
             },
         ];
         assert_eq!(sample["editors"], serde_json::to_value(editors).unwrap());
+        let update_check = UpdateCheck {
+            latest: "0.22.0".into(),
+            bundled: Some("0.22.0".into()),
+            bundled_outdated: false,
+            installed: Some("0.21.0".into()),
+            installed_outdated: true,
+        };
+        assert_eq!(
+            sample["update_check"],
+            serde_json::to_value(update_check).unwrap()
+        );
         let codes = [
             GuiError::InvalidAccount,
             GuiError::AccountMissing,
@@ -2143,6 +2237,7 @@ mod tests {
             GuiError::CliNotInstalled,
             GuiError::StatuslineExists,
             GuiError::UnsupportedPlatform,
+            GuiError::UpdateCheckFailed,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }

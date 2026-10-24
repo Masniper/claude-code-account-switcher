@@ -35,6 +35,7 @@ fn main() {
             commands::vscode_uninstall,
             commands::open_terminal,
             commands::installation,
+            commands::check_update,
             commands::choose_directory,
         ])
         .setup(|app| {

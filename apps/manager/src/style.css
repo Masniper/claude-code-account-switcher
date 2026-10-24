@@ -245,6 +245,10 @@ nav kbd {
   display: flex;
   justify-content: space-between;
 }
+.sidebar-footer button {
+  font-size: 9px;
+  padding: 0;
+}
 .sidebar-footer span {
   letter-spacing: 0;
 }

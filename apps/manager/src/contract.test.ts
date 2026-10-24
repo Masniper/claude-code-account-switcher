@@ -16,6 +16,7 @@ describe("contract", () => {
     expect(sample.bindings).toStrictEqual(library.bindings);
     expect(sample.sessions).toStrictEqual(library.sessions);
     expect(sample.editors).toStrictEqual(library.editors);
+    expect(sample.update_check).toStrictEqual(library.update_check);
     expect(sample.gui_errors).toStrictEqual(library.gui_errors);
   });
 });

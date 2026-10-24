@@ -10,12 +10,14 @@ import type {
   Launch,
   Session,
   Snapshot,
+  UpdateCheck,
 } from "./contract";
 
 export const sample: {
   snapshot: Snapshot;
   bindings: Bindings;
   editors: Editor[];
+  update_check: UpdateCheck;
   sessions: Session[];
   launch: Launch;
   installation: Installation;
@@ -89,6 +91,13 @@ export const sample: {
     { name: "VS Code", state: "ours", other_profiles: false },
     { name: "Cursor", state: "foreign", other_profiles: true },
   ],
+  update_check: {
+    latest: "0.22.0",
+    bundled: "0.22.0",
+    bundled_outdated: false,
+    installed: "0.21.0",
+    installed_outdated: true,
+  },
   sessions: [
     {
       id: "11111111-2222-3333-4444-555555555555",
@@ -125,6 +134,7 @@ export const sample: {
     "cli_not_installed",
     "statusline_exists",
     "unsupported_platform",
+    "update_check_failed",
   ],
   manager_errors: [
     "cli_missing",
