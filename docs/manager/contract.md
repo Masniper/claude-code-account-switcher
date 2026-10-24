@@ -22,6 +22,8 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 
 `remove_account(account)` moves a managed account's directory to the desktop trash, then clears the default if it named the account and drops its bindings, and returns the updated snapshot. The standard account is refused. If the move fails the reply is `trash_unavailable` and nothing has changed; unlike `claude-acc remove`, it never falls back to deleting.
 
+`clone_settings(account)` seeds a managed account from the standard one through the CLI's own `seed`, as `claude-acc clone-settings` does, and returns the names it copied, a directory with a trailing `/`; an empty list means there was nothing to copy. A file or directory the account already has is kept; plugins are copied only into an account with none installed. The standard account is refused with `invalid_account`. A symlink in the account is refused with `symlink_storage` only where the seed would write through it.
+
 `pin_account(account, force)` pins an account to the identity it is signed in as, by the rules of `claude-acc lock`, and returns the updated snapshot. Pinning the identity already pinned does nothing. A pin to someone else, or one that cannot be read, is replaced only with `force`; without it the reply is `identity_drift`. An account that has never signed in gets `not_signed_in`. Every snapshot the window receives re-reads each account's pin state, so a refresh that started earlier cannot show the old one.
 
 ## Bindings, sessions and launching
