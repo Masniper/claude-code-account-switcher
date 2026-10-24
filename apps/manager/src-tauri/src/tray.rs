@@ -78,6 +78,13 @@ fn launch_home(app: &AppHandle, account: &str) -> Result<(), backend::AppError> 
     launcher::open_terminal(home, &dir, account, LaunchAction::Run).map(|_| ())
 }
 
+/// The figure the window shows for a reading: half rounds up, as its
+/// `Math.round` does. `{:.0}` rounds half to even and `f64::round` half away
+/// from zero, so either would put 98% here beside the window's 99%.
+fn shown_percent(percent: f64) -> i64 {
+    (percent + 0.5).floor() as i64
+}
+
 /// `★ work · 5h 42% · cached`. A window whose reset has passed shows no
 /// figure, and there is no relative age: the menu is not redrawn on a clock,
 /// so "5m ago" would stay "5m ago" all afternoon.
@@ -88,7 +95,12 @@ fn label(a: &Account, now: u64) -> String {
         .five_hour
         .as_ref()
         .filter(|w| !w.reset_passed(now))
-        .map(|w| format!(" · {}", text(Text::FiveHour(w.percent), LANG)))
+        .map(|w| {
+            format!(
+                " · {}",
+                text(Text::FiveHour(shown_percent(w.percent)), LANG)
+            )
+        })
         .unwrap_or_default();
     let source = text(Text::Source(a.usage.source), LANG);
     format!("{marker}{}{percent} · {source}", a.name)
@@ -159,6 +171,22 @@ mod tests {
                 }),
                 seven_day: None,
             },
+        }
+    }
+
+    #[test]
+    fn the_menu_rounds_a_reading_as_the_window_does() {
+        // Regression: `{:.0}` rounds half to even, so 98.5 read 98% here and
+        // 99% in the window. Expected values are Node's `Math.round`.
+        for (percent, shown) in [
+            (0.5, 1),
+            (2.5, 3),
+            (98.5, 99),
+            (99.5, 100),
+            (120.5, 121),
+            (-5.5, -5),
+        ] {
+            assert_eq!(shown_percent(percent), shown, "{percent}");
         }
     }
 
