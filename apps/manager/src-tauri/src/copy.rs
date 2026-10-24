@@ -1,6 +1,9 @@
-//! Every string the shell itself shows (#166): the menu bar, the folder
-//! picker, startup failures and the launcher's prompt in Terminal. The
-//! webview's copy is `src/i18n.tsx`; this is the native side of the same rule.
+//! The prose the shell itself shows (#166): the menu bar, the folder
+//! picker's title, startup failures and the launcher's prompt in Terminal.
+//! Not here: `productName` and the window's initial `title` in
+//! `tauri.conf.json`, and anything macOS draws itself, such as the folder
+//! picker's buttons. The webview's prose is `src/i18n.tsx`; this is the
+//! native side of the same rule.
 //!
 //! `text` matches exhaustively over `(Text, Lang)`, as the CLI's `i18n.rs`
 //! does, and has no catch-all: a language added to `Lang` fails to compile
