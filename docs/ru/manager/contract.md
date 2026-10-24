@@ -22,6 +22,8 @@
 
 `remove_account(account)` перемещает директорию управляемого аккаунта в корзину, затем сбрасывает default, если он указывал на этот аккаунт, удаляет его привязки и возвращает обновлённый snapshot. Стандартный аккаунт отклоняется. Если перемещение не удалось, ответ — `trash_unavailable`, и ничего не изменено; в отличие от `claude-acc remove`, удаления напрямую не бывает.
 
+`pin_account(account, force)` закрепляет аккаунт за личностью, под которой он вошёл, по правилам `claude-acc lock`, и возвращает обновлённый snapshot. Повторное закрепление той же личности ничего не делает. Pin на другую личность или нечитаемый pin заменяется только с `force`; без него ответ — `identity_drift`. Аккаунт, ни разу не входивший, получает `not_signed_in`. Каждый snapshot, который получает окно, заново читает состояние pin каждого аккаунта, поэтому обновление, начатое раньше, не покажет старое.
+
 ## Привязки, сессии и запуск
 
 - `list_bindings(directory?)` возвращает отсортированные `bindings` (`directory`, `account`, `exists`) и optional `selected`: физическую директорию, её действующий `account` и nullable `inherited_from`, разрешённые собственными `resolve_account` и `find_linked_dir` CLI.
@@ -33,7 +35,7 @@
 
 ## Ошибки
 
-Каждый сбой — машинный код, который окно переводит в текст: коды библиотеки (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`) и оболочки (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). Код не несёт путей, вывода процессов и учётных данных. У каждого кода есть текст на каждом языке, и нет текста для кода, который нельзя отправить; `copy.test.ts` проверяет оба направления.
+Каждый сбой — машинный код, который окно переводит в текст: коды библиотеки (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`) и оболочки (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). Код не несёт путей, вывода процессов и учётных данных. У каждого кода есть текст на каждом языке, и нет текста для кода, который нельзя отправить; `copy.test.ts` проверяет оба направления.
 
 ## Никогда не отправляется
 

@@ -22,6 +22,8 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 
 `remove_account(account)` moves a managed account's directory to the desktop trash, then clears the default if it named the account and drops its bindings, and returns the updated snapshot. The standard account is refused. If the move fails the reply is `trash_unavailable` and nothing has changed; unlike `claude-acc remove`, it never falls back to deleting.
 
+`pin_account(account, force)` pins an account to the identity it is signed in as, by the rules of `claude-acc lock`, and returns the updated snapshot. Pinning the identity already pinned does nothing. A pin to someone else, or one that cannot be read, is replaced only with `force`; without it the reply is `identity_drift`. An account that has never signed in gets `not_signed_in`. Every snapshot the window receives re-reads each account's pin state, so a refresh that started earlier cannot show the old one.
+
 ## Bindings, sessions and launching
 
 - `list_bindings(directory?)` returns sorted `bindings` (`directory`, `account`, `exists`) and an optional `selected`: the physical directory, its effective `account` and nullable `inherited_from`, resolved by the CLI's own `resolve_account` and `find_linked_dir`.
@@ -33,7 +35,7 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 
 ## Errors
 
-Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.
+Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.
 
 ## Never sent
 
