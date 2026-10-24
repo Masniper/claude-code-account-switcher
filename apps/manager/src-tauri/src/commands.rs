@@ -3,7 +3,10 @@
 use crate::backend::{self, AppError, Backend, Revisioned};
 use crate::copy::{LANG, Text, text};
 use crate::launcher::{self, Installation, Launch};
-use claude_acc::gui::{self, Bindings, Editor, LaunchAction, Session, UpdateCheck};
+use claude_acc::desktop;
+use claude_acc::gui::{
+    self, Bindings, DesktopAction, DesktopProfiles, Editor, LaunchAction, Session, UpdateCheck,
+};
 use tauri::{AppHandle, Manager};
 
 async fn blocking<T: Send + 'static>(
@@ -198,6 +201,56 @@ pub async fn open_terminal(
         )?;
         let home = b.home().ok_or(gui::GuiError::DirectoryMissing)?;
         launcher::open_terminal(home, &dir, &account, action)
+    })
+    .await
+}
+
+fn desktop_list(app: &AppHandle) -> Result<DesktopProfiles, AppError> {
+    let b = app.state::<Backend>();
+    let app_profile = desktop::standard_profile();
+    Ok(gui::desktop_profiles(
+        &b.config,
+        &b.standard,
+        app_profile.as_deref(),
+    )?)
+}
+
+#[tauri::command]
+pub async fn desktop_profiles(app: AppHandle) -> Result<DesktopProfiles, AppError> {
+    blocking(app, desktop_list).await
+}
+
+/// Open Claude Desktop on a profile, adding it first for an add. The app is
+/// looked for before anything is created, as in the CLI.
+#[tauri::command]
+pub async fn desktop_open(
+    app: AppHandle,
+    account: String,
+    action: DesktopAction,
+    force: bool,
+) -> Result<DesktopProfiles, AppError> {
+    blocking(app, move |app| {
+        let claude = gui::desktop_app()?;
+        let profile = gui::desktop_prepare(
+            &app.state::<Backend>().config,
+            desktop::standard_profile().as_deref(),
+            &account,
+            action,
+            force,
+            &desktop::running_instances(),
+        )?;
+        gui::desktop_launch(&claude, &profile)?;
+        desktop_list(app)
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn desktop_remove(app: AppHandle, account: String) -> Result<DesktopProfiles, AppError> {
+    blocking(app, move |app| {
+        let config = &app.state::<Backend>().config;
+        gui::desktop_remove(config, &account, &desktop::running_instances())?;
+        desktop_list(app)
     })
     .await
 }

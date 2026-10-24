@@ -34,6 +34,9 @@ vi.mock("./api", async (importOriginal) => ({
     vscodeUninstall: vi.fn(),
     terminal: vi.fn(),
     installation: vi.fn(),
+    desktopProfiles: vi.fn(),
+    desktopOpen: vi.fn(),
+    desktopRemove: vi.fn(),
     checkUpdate: vi.fn(),
     chooseDirectory: vi.fn(),
   },
@@ -65,6 +68,7 @@ beforeEach(() => {
   vi.mocked(api.sessions).mockResolvedValue([]);
   vi.mocked(api.resumeHook).mockResolvedValue(true);
   vi.mocked(api.vscodeEditors).mockResolvedValue([]);
+  vi.mocked(api.desktopProfiles).mockResolvedValue(sample.desktop_profiles);
   vi.mocked(api.terminal).mockResolvedValue({ state: "started" });
   vi.mocked(api.installation).mockResolvedValue(sample.installation);
   HTMLDialogElement.prototype.showModal = function () {
@@ -452,6 +456,114 @@ describe("projects", () => {
     await waitFor(() =>
       expect(api.bind).toHaveBeenCalledWith("/Projects/nested", "personal"),
     );
+  });
+});
+
+describe("desktop", () => {
+  const openDesktop = async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.click(screen.getByRole("button", { name: /Desktop/ }));
+    await screen.findByText("design");
+  };
+  const row = (name: string) =>
+    screen.getByText(name, { selector: "strong" }).closest(".session-row") as HTMLElement;
+
+  it("is page four: ⌘4 opens it and ⌘1 goes back", async () => {
+    render(<App />);
+    await screen.findByText("developer@example.test");
+    fireEvent.keyDown(window, { key: "4", metaKey: true });
+    expect(await screen.findByText("design")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Claude Desktop profiles");
+    fireEvent.keyDown(window, { key: "1", metaKey: true });
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Your accounts");
+  });
+
+  it("lists profiles with what local records say about them", async () => {
+    await openDesktop();
+    expect(within(row("design")).getByText("designer@example.test")).toBeTruthy();
+    expect(within(row("fresh")).getByText("Not signed in")).toBeTruthy();
+    expect(screen.getByText(/Claude Desktop's own profile is on this Mac/)).toBeTruthy();
+  });
+
+  it("adds a profile, seeded only when asked, and opens it", async () => {
+    vi.mocked(api.desktopOpen).mockResolvedValue(sample.desktop_profiles);
+    await openDesktop();
+    for (const [name, seeded, action] of [
+      ["plain", false, "add"],
+      ["seeded", true, "add_seeded"],
+    ] as const) {
+      fireEvent.change(screen.getByLabelText("New profile name"), { target: { value: name } });
+      const seed = screen.getByRole("checkbox", { name: /MCP servers and preferences/ });
+      if (seeded !== (seed as HTMLInputElement).checked) fireEvent.click(seed);
+      fireEvent.click(screen.getAllByRole("button", { name: "Add profile" })[0]);
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Add profile" }));
+      await waitFor(() => expect(api.desktopOpen).toHaveBeenLastCalledWith(name, action, false));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+    expect(screen.getByText(/^Added seeded and opened Claude Desktop/)).toBeTruthy();
+  });
+
+  it("refuses a reserved name before anything runs", async () => {
+    await openDesktop();
+    fireEvent.change(screen.getByLabelText("New profile name"), { target: { value: "default" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add profile" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("reserved");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens anyway only after being told another Claude Desktop is open", async () => {
+    vi.mocked(api.desktopOpen)
+      .mockRejectedValueOnce("desktop_running")
+      .mockResolvedValue(sample.desktop_profiles);
+    await openDesktop();
+    fireEvent.click(within(row("fresh")).getByRole("button", { name: "Open" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Open" }));
+    await waitFor(() => expect(api.desktopOpen).toHaveBeenCalledWith("fresh", "open", false));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("Another Claude Desktop");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Open anyway" }));
+    await waitFor(() => expect(api.desktopOpen).toHaveBeenLastCalledWith("fresh", "open", true));
+  });
+
+  it("reads the list again when adding fails after the profile was made", async () => {
+    vi.mocked(api.desktopProfiles)
+      .mockResolvedValueOnce(sample.desktop_profiles)
+      .mockResolvedValue({
+        ...sample.desktop_profiles,
+        profiles: [...sample.desktop_profiles.profiles, { name: "late", signed_in: false, email: null }],
+      });
+    vi.mocked(api.desktopOpen).mockRejectedValue("desktop_launch_failed");
+    await openDesktop();
+    fireEvent.change(screen.getByLabelText("New profile name"), { target: { value: "late" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add profile" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add profile" }));
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("could not be opened");
+    expect(await screen.findByText("late", { selector: "strong" })).toBeTruthy();
+  });
+
+  it("offers seeding only when the app's own profile is there", async () => {
+    vi.mocked(api.desktopProfiles).mockResolvedValue({
+      ...sample.desktop_profiles,
+      app_profile_exists: false,
+    });
+    await openDesktop();
+    expect(screen.queryByRole("checkbox", { name: /MCP servers/ })).toBeNull();
+  });
+
+  it("moves a profile to the Trash after confirming", async () => {
+    vi.mocked(api.desktopRemove).mockResolvedValue({
+      ...sample.desktop_profiles,
+      profiles: [sample.desktop_profiles.profiles[1]],
+    });
+    await openDesktop();
+    fireEvent.click(within(row("design")).getByRole("button", { name: "Move to Trash…" }));
+    expect(api.desktopRemove).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Move to Trash" }));
+    await waitFor(() => expect(api.desktopRemove).toHaveBeenCalledWith("design"));
+    await waitFor(() => expect(screen.queryByText("design", { selector: "strong" })).toBeNull());
   });
 });
 

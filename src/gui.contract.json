@@ -95,6 +95,21 @@
     "installed": "0.21.0",
     "installed_outdated": true
   },
+  "desktop_profiles": {
+    "profiles": [
+      {
+        "name": "design",
+        "signed_in": true,
+        "email": "designer@example.test"
+      },
+      {
+        "name": "fresh",
+        "signed_in": false,
+        "email": null
+      }
+    ],
+    "app_profile_exists": true
+  },
   "sessions": [
     {
       "id": "11111111-2222-3333-4444-555555555555",
@@ -125,6 +140,9 @@
     "cli_not_installed",
     "statusline_exists",
     "unsupported_platform",
-    "update_check_failed"
+    "update_check_failed",
+    "desktop_running",
+    "desktop_app_missing",
+    "desktop_launch_failed"
   ]
 }

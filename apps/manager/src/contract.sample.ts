@@ -3,6 +3,7 @@
 // and the Rust tests check the JSON against what the backend serializes.
 import type {
   Bindings,
+  DesktopProfiles,
   Editor,
   ManagerError,
   GuiError,
@@ -18,6 +19,7 @@ export const sample: {
   bindings: Bindings;
   editors: Editor[];
   update_check: UpdateCheck;
+  desktop_profiles: DesktopProfiles;
   sessions: Session[];
   launch: Launch;
   installation: Installation;
@@ -98,6 +100,13 @@ export const sample: {
     installed: "0.21.0",
     installed_outdated: true,
   },
+  desktop_profiles: {
+    profiles: [
+      { name: "design", signed_in: true, email: "designer@example.test" },
+      { name: "fresh", signed_in: false, email: null },
+    ],
+    app_profile_exists: true,
+  },
   sessions: [
     {
       id: "11111111-2222-3333-4444-555555555555",
@@ -135,6 +144,9 @@ export const sample: {
     "statusline_exists",
     "unsupported_platform",
     "update_check_failed",
+    "desktop_running",
+    "desktop_app_missing",
+    "desktop_launch_failed",
   ],
   manager_errors: [
     "cli_missing",

@@ -80,6 +80,19 @@ export type UpdateCheck = {
   installed_outdated: boolean;
 };
 
+export type DesktopProfile = {
+  name: string;
+  signed_in: boolean;
+  email: string | null;
+};
+
+export type DesktopProfiles = {
+  profiles: DesktopProfile[];
+  app_profile_exists: boolean;
+};
+
+export type DesktopAction = "open" | "add" | "add_seeded";
+
 export type LaunchAction = "run" | "login" | "add" | "add_seeded";
 export type Launch = { state: "started" | "pending" };
 
@@ -109,7 +122,10 @@ export type GuiError =
   | "cli_not_installed"
   | "statusline_exists"
   | "unsupported_platform"
-  | "update_check_failed";
+  | "update_check_failed"
+  | "desktop_running"
+  | "desktop_app_missing"
+  | "desktop_launch_failed";
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

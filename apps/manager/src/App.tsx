@@ -6,11 +6,12 @@ import { usePreference } from "./hooks";
 import { CopyProvider, useCopy, type Lang } from "./i18n";
 import { NoticeBanner, NoticeProvider, useNotices } from "./notices";
 import { ProjectsPage } from "./projects/ProjectsPage";
+import { DesktopPage } from "./desktop/DesktopPage";
 import { SessionsPage } from "./sessions/SessionsPage";
 import { UpdateButton } from "./UpdateButton";
 import { useSnapshot } from "./useSnapshot";
 
-const TABS = ["accounts", "projects", "sessions"] as const;
+const TABS = ["accounts", "projects", "sessions", "desktop"] as const;
 type Tab = (typeof TABS)[number];
 const THEMES = ["system", "dark", "light"] as const;
 const INTERVALS = [0, 5, 15, 30] as const;
@@ -66,7 +67,7 @@ function Shell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      const index = ["1", "2", "3"].indexOf(e.key);
+      const index = ["1", "2", "3", "4"].indexOf(e.key);
       if (e.key === "r") void refresh(true);
       else if (e.key === "n") {
         setTab("accounts");
@@ -186,6 +187,7 @@ function Shell() {
           {tab === "projects" && (
             <ProjectsPage accounts={state.snapshot?.accounts ?? []} />
           )}
+          {tab === "desktop" && <DesktopPage />}
           {tab === "sessions" && (
             <SessionsPage accounts={state.snapshot?.accounts ?? []} />
           )}

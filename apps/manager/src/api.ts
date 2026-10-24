@@ -5,6 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Bindings,
+  DesktopAction,
+  DesktopProfiles,
   Editor,
   Installation,
   Launch,
@@ -40,6 +42,10 @@ export const api = {
   vscodeUninstall: () => invoke<Editor[]>("vscode_uninstall"),
   terminal: (account: string, directory: string | null, action: LaunchAction) =>
     invoke<Launch>("open_terminal", { account, directory, action }),
+  desktopProfiles: () => invoke<DesktopProfiles>("desktop_profiles"),
+  desktopOpen: (account: string, action: DesktopAction, force: boolean) =>
+    invoke<DesktopProfiles>("desktop_open", { account, action, force }),
+  desktopRemove: (account: string) => invoke<DesktopProfiles>("desktop_remove", { account }),
   installation: () => invoke<Installation>("installation"),
   checkUpdate: () => invoke<UpdateCheck>("check_update"),
   chooseDirectory: () => invoke<string | null>("choose_directory"),

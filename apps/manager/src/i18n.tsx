@@ -49,6 +49,11 @@ const en = {
       title: "Project bindings",
       lead: "Choose once. The account follows the directory and its children.",
     },
+    desktop: {
+      label: "Desktop",
+      title: "Claude Desktop profiles",
+      lead: "Separate Claude Desktop profiles, each signed in to its own account, open side by side.",
+    },
     sessions: {
       label: "Sessions",
       title: "Session library",
@@ -345,6 +350,41 @@ const en = {
     "Take claudeCode.claudeProcessWrapper out of each editor that points at our launcher. A launcher set by another tool, and a settings.json that is a link, are left in place.",
   vscodeRestart: "Restart the editor for it to take effect.",
 
+  // Desktop
+  desktopBanner:
+    "Each profile is its own Claude Desktop data folder under ~/.claude-switch/desktop, as claude-acc desktop makes them. Signing in needs every other Claude Desktop window closed; after that, profiles open side by side.",
+  desktopReading: "Reading Desktop profiles…",
+  desktopNoneTitle: "No Desktop profiles yet",
+  desktopNoneBody: "Add one above to open Claude Desktop on a profile of its own.",
+  desktopAppProfile:
+    "Claude Desktop's own profile is on this Mac too. It is the one the app opens normally, and it is not managed here.",
+  desktopSignedIn: "Signed in",
+  desktopSignedOut: "Not signed in",
+  desktopOpen: "Open",
+  desktopOpenAnyway: "Open anyway",
+  desktopNewProfile: "New profile name",
+  desktopAdd: "Add profile",
+  desktopSeedLabel: "Start with the MCP servers and preferences of Claude Desktop's own profile",
+  desktopAddTitle: (name: string) => `Add the Desktop profile ${name}?`,
+  desktopAddBody:
+    "Create the profile and open Claude Desktop on it, signed out: sign in there with the account it is for. Quit every other Claude Desktop window first, because signing in finishes through a claude:// link that the system hands to one instance only. The profile is fully isolated, so the app downloads its whole runtime into it again, about 10.5 GB.",
+  desktopOpenTitle: (name: string) => `Open Claude Desktop on ${name}?`,
+  desktopOpenBody: (name: ReactNode) => (
+    <>
+      Open Claude Desktop on {name}. If it has not signed in yet, quit every other
+      Claude Desktop window first, so the sign-in reaches this one.
+    </>
+  ),
+  desktopAdded: (name: string) => `Added ${name} and opened Claude Desktop on it. Sign in there.`,
+  desktopOpened: (name: string) => `Opened Claude Desktop on ${name}.`,
+  desktopTrashTitle: (name: string) => `Move the Desktop profile ${name} to the Trash?`,
+  desktopTrashBody: (name: ReactNode) => (
+    <>
+      The data folder of {name}, with its sign-in, settings and downloaded runtime,
+      moves to the Trash and stays there until you empty it.
+    </>
+  ),
+
   // Sessions
   sessionsBanner:
     "This browser reads session metadata only, never a transcript's content. Copying a session to another account leaves the original where it is.",
@@ -395,6 +435,11 @@ const en = {
 
   // Backend results
   errors: {
+    desktop_running:
+      "Another Claude Desktop is open. A sign-in needs every other window closed, and a profile that is open cannot be moved to the Trash. Quit it and try again.",
+    desktop_app_missing:
+      "Claude Desktop was not found in /Applications or ~/Applications.",
+    desktop_launch_failed: "Claude Desktop could not be opened.",
     update_check_failed:
       "GitHub could not be asked for the latest release. Check the connection and try again.",
     unsupported_platform: "This is not available on this platform yet.",
@@ -418,8 +463,8 @@ const en = {
       "A shared credential-store override is set. Live refresh is disabled because it could report one account for every directory. Launch the manager without CLAUDE_SECURESTORAGE_CONFIG_DIR.",
     invalid_account:
       "Use letters, numbers, hyphens, or underscores for an account name.",
-    account_missing: "This account directory is missing. Refresh the account list.",
-    account_exists: "An account with that name already exists.",
+    account_missing: "This account or profile no longer exists. Refresh the list.",
+    account_exists: "An account or profile with that name already exists.",
     invalid_directory:
       "Choose an absolute directory path without control characters or surrounding whitespace.",
     unrepresentable_directory:

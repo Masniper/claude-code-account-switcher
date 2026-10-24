@@ -32,6 +32,8 @@
 //!   VS Code process wrapper, by the rules of `claude-acc vscode`.
 //! - [`check_update`]: the latest `claude-acc` release against the bundled
 //!   and installed CLIs, as `claude-acc update --check` reports it.
+//! - [`desktop_profiles`], [`desktop_prepare`] and [`desktop_remove`]:
+//!   Claude Desktop profiles, by the rules of `claude-acc desktop`.
 //! - [`pin_account`]: pin an account to the identity it is signed in as,
 //!   by the same rules as `claude-acc lock`.
 //! - [`check_launch`]: whether `run`, `login` or `add` (with or without
@@ -64,9 +66,11 @@
 //! unbound directories.
 use crate::config::{AppConfig, binary_name, validate_name};
 use crate::import::{self, Refusal};
-use crate::{identity, resolve, seed, sessions, statusline, trash, update, vscode};
+use crate::{
+    desktop, desktop_auth, identity, resolve, seed, sessions, statusline, trash, update, vscode,
+};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -96,6 +100,9 @@ pub enum GuiError {
     StatuslineExists,
     UnsupportedPlatform,
     UpdateCheckFailed,
+    DesktopRunning,
+    DesktopAppMissing,
+    DesktopLaunchFailed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -255,6 +262,34 @@ pub struct UpdateCheck {
     /// The CLI under the switch directory; `claude-acc update` replaces it.
     pub installed: Option<String>,
     pub installed_outdated: bool,
+}
+
+/// A Claude Desktop profile under the switch directory, from local records
+/// only: no Keychain, no network.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DesktopProfile {
+    pub name: String,
+    pub signed_in: bool,
+    /// From the profile's own cache, or from an account this tool manages
+    /// signed in as the same uuid.
+    pub email: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DesktopProfiles {
+    pub profiles: Vec<DesktopProfile>,
+    /// Claude Desktop's own profile exists here. Shown, never managed.
+    pub app_profile_exists: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopAction {
+    Open,
+    Add,
+    /// `desktop add --seed`: the new profile starts with the app's own MCP
+    /// servers and preferences.
+    AddSeeded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1208,6 +1243,153 @@ fn check_update_with(
     })
 }
 
+/// A managed Desktop profile's directory, with the files read from it checked
+/// like any account storage. It may not exist yet.
+fn desktop_profile_dir(config: &AppConfig, name: &str) -> Result<PathBuf, GuiError> {
+    // `default` is the app's own profile, which is not ours to manage.
+    if name == "default" || !validate_name(name) {
+        return Err(GuiError::InvalidAccount);
+    }
+    let dir = desktop::profile_path(config, name);
+    reject_symlinks(&config.base_dir, &dir)?;
+    for file in ["config.json", ".account-info.json", desktop::CONFIG_FILE] {
+        reject_symlinks(&config.base_dir, &dir.join(file))?;
+    }
+    Ok(dir)
+}
+
+/// `accountUuid` -> email for the accounts this window shows, read only from
+/// storage [`account_dir`] accepts.
+fn known_identities(config: &AppConfig, standard: &Path) -> HashMap<String, String> {
+    std::iter::once("default".to_string())
+        .chain(config.list_accounts().unwrap_or_default())
+        .filter_map(|name| account_dir(config, standard, &name).ok())
+        .filter_map(|dir| identity::local_identity(&dir))
+        .filter_map(|id| Some((id.uuid.to_lowercase(), id.email?)))
+        .collect()
+}
+
+/// The managed Desktop profiles, as `claude-acc desktop list` shows them:
+/// signed in or not, and the email where a local record names it. A
+/// profile whose storage would be refused is left out. `app_profile` is
+/// Claude Desktop's own profile, when this platform has one.
+pub fn desktop_profiles(
+    config: &AppConfig,
+    standard: &Path,
+    app_profile: Option<&Path>,
+) -> Result<DesktopProfiles, GuiError> {
+    reject_symlinks(&config.base_dir, &desktop::profiles_dir(config))?;
+    let names = desktop::list_profiles(config).map_err(|_| GuiError::StorageUnreadable)?;
+    let known = known_identities(config, standard);
+    let profiles = names
+        .into_iter()
+        .filter_map(|name| {
+            let dir = desktop_profile_dir(config, &name).ok()?;
+            let uuid = desktop_auth::last_known_account_uuid(&dir);
+            let email = identity::read_cache(&dir)
+                .and_then(|c| c.email)
+                .or_else(|| desktop::borrowed_email(uuid.as_deref(), &known).map(String::from));
+            Some(DesktopProfile {
+                signed_in: desktop::is_signed_in(&dir),
+                email,
+                name,
+            })
+        })
+        .collect();
+    Ok(DesktopProfiles {
+        profiles,
+        app_profile_exists: app_profile.is_some_and(Path::is_dir),
+    })
+}
+
+/// The installed Claude Desktop, or `desktop_app_missing`.
+pub fn desktop_app() -> Result<PathBuf, GuiError> {
+    desktop::find_app().ok_or(GuiError::DesktopAppMissing)
+}
+
+/// Open Claude Desktop on `profile`, as `claude-acc desktop run` does.
+pub fn desktop_launch(app: &Path, profile: &Path) -> Result<(), GuiError> {
+    desktop::launch(app, profile).map_err(|_| GuiError::DesktopLaunchFailed)
+}
+
+/// Decide whether `action` may run for Desktop profile `name`, given the
+/// instances running now, and do the part that is not launching: create
+/// the profile for an add, and seed it from `app_profile` for a seeded one.
+/// Returns the profile's directory for the caller to launch.
+///
+/// A sign-in, which an add always is and an open is for a profile not
+/// signed in, needs no other Claude Desktop running: the `claude://` link
+/// that finishes it goes to whichever instance the system picks. That is
+/// `desktop_running` unless `force`, as with `--force`. A failed seed does
+/// not withhold the profile, as in the CLI.
+pub fn desktop_prepare(
+    config: &AppConfig,
+    app_profile: Option<&Path>,
+    name: &str,
+    action: DesktopAction,
+    force: bool,
+    running: &[desktop::Instance],
+) -> Result<PathBuf, GuiError> {
+    let dir = desktop_profile_dir(config, name)?;
+    let adding = action != DesktopAction::Open;
+    match (adding, dir.is_dir()) {
+        (false, false) => return Err(GuiError::AccountMissing),
+        (true, _) if dir.exists() => return Err(GuiError::AccountExists),
+        _ => (),
+    }
+    let signs_in = adding || !desktop::is_signed_in(&dir);
+    if signs_in && !force && !running.is_empty() {
+        return Err(GuiError::DesktopRunning);
+    }
+    if adding {
+        writable(config)?;
+        fs::create_dir_all(&dir).map_err(|_| GuiError::StorageWriteFailed)?;
+        if action == DesktopAction::AddSeeded
+            && let Some(source) = app_profile
+            && desktop::plan_clone(source.join(desktop::CONFIG_FILE).is_file(), false, false)
+                == desktop::ClonePlan::Copy
+        {
+            let _ = desktop::clone_config(source, &dir);
+        }
+    }
+    Ok(dir)
+}
+
+/// Move a managed Desktop profile to the desktop trash. Unlike `claude-acc
+/// desktop remove` there is no deleting outright, and a profile a running
+/// instance is using is refused (`desktop_running`).
+pub fn desktop_remove(
+    config: &AppConfig,
+    name: &str,
+    running: &[desktop::Instance],
+) -> Result<(), GuiError> {
+    desktop_remove_with(config, name, running, trash::trash_dir)
+}
+
+fn desktop_remove_with(
+    config: &AppConfig,
+    name: &str,
+    running: &[desktop::Instance],
+    to_trash: impl FnOnce(&Path) -> std::io::Result<PathBuf>,
+) -> Result<(), GuiError> {
+    let dir = desktop_profile_dir(config, name)?;
+    if !dir.is_dir() {
+        return Err(GuiError::AccountMissing);
+    }
+    // `ps` gives each instance's profile directory as it was spelled at
+    // launch, and on a case-insensitive volume `Design` opens `design`.
+    if running.iter().any(|i| {
+        i.profile
+            .as_deref()
+            .is_some_and(|p| p.eq_ignore_ascii_case(name))
+    }) {
+        return Err(GuiError::DesktopRunning);
+    }
+    to_trash(&dir)
+        .map(|_| ())
+        .map_err(|_| GuiError::TrashUnavailable)
+}
+
 /// Pin an account to the identity it is signed in as now, as `claude-acc
 /// lock` does. Pinning the identity it is already pinned to does nothing.
 /// A pin to someone else, or one that cannot be read, is replaced only with
@@ -1978,6 +2160,163 @@ mod tests {
         }
     }
 
+    /// A Desktop profile at `desktop/<name>`, signed in as `uuid` if given.
+    fn desktop_profile(c: &AppConfig, name: &str, uuid: Option<&str>) -> PathBuf {
+        let dir = desktop::profile_path(c, name);
+        fs::create_dir_all(&dir).unwrap();
+        if let Some(uuid) = uuid {
+            fs::write(
+                dir.join("config.json"),
+                format!(r#"{{"oauth:tokenCacheV2":"sealed","lastKnownAccountUuid":"{uuid}"}}"#),
+            )
+            .unwrap();
+        }
+        dir
+    }
+
+    fn instance(profile: &str) -> desktop::Instance {
+        desktop::Instance {
+            pid: 1,
+            profile: Some(profile.to_string()),
+        }
+    }
+
+    #[test]
+    fn desktop_profiles_are_named_from_local_records_only() {
+        let (c, root) = fixture("desktop-list");
+        let standard = root.join("standard");
+        fs::write(
+            c.account_path("work").join(".claude.json"),
+            r#"{"oauthAccount":{"accountUuid":"u-1","emailAddress":"work@example.test"}}"#,
+        )
+        .unwrap();
+        // Signed in as the CLI's `work`, matched case-insensitively.
+        desktop_profile(&c, "design", Some("U-1"));
+        desktop_profile(&c, "fresh", None);
+        // A cached email beats a match.
+        let cached = desktop_profile(&c, "cached", Some("u-1"));
+        fs::write(
+            cached.join(".account-info.json"),
+            r#"{"email":"cache@example.test"}"#,
+        )
+        .unwrap();
+        let app_profile = root.join("app-profile");
+        let listed = desktop_profiles(&c, &standard, Some(&app_profile)).unwrap();
+        assert!(!listed.app_profile_exists);
+        let rows: Vec<_> = listed
+            .profiles
+            .iter()
+            .map(|p| (p.name.as_str(), p.signed_in, p.email.as_deref()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("cached", true, Some("cache@example.test")),
+                ("design", true, Some("work@example.test")),
+                ("fresh", false, None),
+            ]
+        );
+        fs::create_dir_all(&app_profile).unwrap();
+        assert!(
+            desktop_profiles(&c, &standard, Some(&app_profile))
+                .unwrap()
+                .app_profile_exists
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_sign_in_waits_for_other_instances_and_an_add_creates_and_seeds() {
+        let (c, root) = fixture("desktop-prepare");
+        let app_profile = root.join("app-profile");
+        fs::create_dir_all(&app_profile).unwrap();
+        fs::write(
+            app_profile.join(desktop::CONFIG_FILE),
+            r#"{"mcpServers":{}}"#,
+        )
+        .unwrap();
+        let busy = [instance("Claude")];
+        let prepare = |name, action, force, running: &[desktop::Instance]| {
+            desktop_prepare(&c, Some(&app_profile), name, action, force, running)
+        };
+        use DesktopAction::*;
+
+        assert_eq!(
+            prepare("ghost", Open, false, &[]),
+            Err(GuiError::AccountMissing)
+        );
+        assert_eq!(
+            prepare("default", Add, false, &[]),
+            Err(GuiError::InvalidAccount)
+        );
+        // Adding is signing in: refused while another instance runs.
+        assert_eq!(
+            prepare("new", Add, false, &busy),
+            Err(GuiError::DesktopRunning)
+        );
+        assert!(!desktop::profile_path(&c, "new").exists());
+        let plain = prepare("new", Add, true, &busy).unwrap();
+        assert!(plain.is_dir());
+        assert!(!plain.join(desktop::CONFIG_FILE).exists());
+        assert_eq!(
+            prepare("new", Add, false, &[]),
+            Err(GuiError::AccountExists)
+        );
+        let seeded = prepare("seeded", AddSeeded, false, &[]).unwrap();
+        assert_eq!(
+            fs::read_to_string(seeded.join(desktop::CONFIG_FILE)).unwrap(),
+            r#"{"mcpServers":{}}"#
+        );
+
+        // Opening a profile that still has to sign in is a sign-in too; one
+        // already signed in coexists with other instances.
+        assert_eq!(
+            prepare("new", Open, false, &busy),
+            Err(GuiError::DesktopRunning)
+        );
+        desktop_profile(&c, "signed", Some("u-9"));
+        assert_eq!(
+            prepare("signed", Open, false, &busy),
+            Ok(desktop::profile_path(&c, "signed"))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_desktop_profile_goes_to_the_trash_unless_it_is_open() {
+        let (c, root) = fixture("desktop-remove");
+        let dir = desktop_profile(&c, "design", Some("u-1"));
+        let bin = root.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let to_bin = |d: &Path| {
+            let dest = bin.join("design");
+            fs::rename(d, &dest).map(|_| dest)
+        };
+        let never = |_: &Path| -> std::io::Result<PathBuf> { panic!("moved") };
+        // Opened as `Design`, which a case-insensitive volume resolves to it.
+        for open in ["design", "Design"] {
+            assert_eq!(
+                desktop_remove_with(&c, "design", &[instance(open)], never),
+                Err(GuiError::DesktopRunning),
+                "{open}"
+            );
+        }
+        assert_eq!(
+            desktop_remove_with(&c, "ghost", &[], never),
+            Err(GuiError::AccountMissing)
+        );
+        assert_eq!(
+            desktop_remove_with(&c, "design", &[], |_| Err(std::io::ErrorKind::Other.into())),
+            Err(GuiError::TrashUnavailable)
+        );
+        assert!(dir.is_dir());
+        // Another profile being open is no reason to keep this one.
+        desktop_remove_with(&c, "design", &[instance("other")], to_bin).unwrap();
+        assert!(!dir.exists());
+        assert!(bin.join("design/config.json").is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn launch_policy_covers_every_action() {
         let (c, root) = fixture("launch");
@@ -2213,6 +2552,25 @@ mod tests {
             installed: Some("0.21.0".into()),
             installed_outdated: true,
         };
+        let desktop_profiles = DesktopProfiles {
+            profiles: vec![
+                DesktopProfile {
+                    name: "design".into(),
+                    signed_in: true,
+                    email: Some("designer@example.test".into()),
+                },
+                DesktopProfile {
+                    name: "fresh".into(),
+                    signed_in: false,
+                    email: None,
+                },
+            ],
+            app_profile_exists: true,
+        };
+        assert_eq!(
+            sample["desktop_profiles"],
+            serde_json::to_value(desktop_profiles).unwrap()
+        );
         assert_eq!(
             sample["update_check"],
             serde_json::to_value(update_check).unwrap()
@@ -2238,6 +2596,9 @@ mod tests {
             GuiError::StatuslineExists,
             GuiError::UnsupportedPlatform,
             GuiError::UpdateCheckFailed,
+            GuiError::DesktopRunning,
+            GuiError::DesktopAppMissing,
+            GuiError::DesktopLaunchFailed,
         ];
         assert_eq!(sample["gui_errors"], serde_json::to_value(codes).unwrap());
     }
@@ -2689,6 +3050,27 @@ mod tests {
         vscode_uninstall_in(&c, &editors).unwrap();
         assert!(code.is_symlink());
         assert_eq!(fs::read_to_string(&dotfiles).unwrap(), "{}");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_desktop_profile_kept_as_a_link_is_neither_listed_nor_opened() {
+        let (c, root) = fixture("desktop-link");
+        let outside = root.join("outside");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(desktop::profiles_dir(&c)).unwrap();
+        std::os::unix::fs::symlink(&outside, desktop::profile_path(&c, "alias")).unwrap();
+        let real = desktop_profile(&c, "real", None);
+        std::os::unix::fs::symlink(outside.join("config.json"), real.join("config.json")).unwrap();
+        let listed = desktop_profiles(&c, &root.join("standard"), None).unwrap();
+        assert!(listed.profiles.is_empty(), "{:?}", listed.profiles);
+        for name in ["alias", "real"] {
+            assert_eq!(
+                desktop_prepare(&c, None, name, DesktopAction::Open, true, &[]),
+                Err(GuiError::SymlinkStorage)
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
