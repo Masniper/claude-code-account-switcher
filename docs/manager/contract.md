@@ -20,6 +20,8 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 
 `set_default(account)` returns the updated snapshot, keeping readings an earlier refresh paid for.
 
+`remove_account(account)` moves a managed account's directory to the desktop trash, then clears the default if it named the account and drops its bindings, and returns the updated snapshot. The standard account is refused. If the move fails the reply is `trash_unavailable` and nothing has changed; unlike `claude-acc remove`, it never falls back to deleting.
+
 ## Bindings, sessions and launching
 
 - `list_bindings(directory?)` returns sorted `bindings` (`directory`, `account`, `exists`) and an optional `selected`: the physical directory, its effective `account` and nullable `inherited_from`, resolved by the CLI's own `resolve_account` and `find_linked_dir`.
@@ -31,7 +33,7 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 
 ## Errors
 
-Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.
+Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.
 
 ## Never sent
 

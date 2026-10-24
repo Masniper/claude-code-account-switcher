@@ -17,8 +17,9 @@ Claude Code must already be installed and on `PATH` in your Terminal login envir
 3. **Open Claude:** a new Terminal window running the bundled `claude-acc run <account>`. Running sessions are not affected. A pin that differs from the signed-in identity, or cannot be read, blocks the launch until it is resolved with the CLI. The confirmation says the launch *started* once Terminal has run it, which is not the same as Claude having signed in.
 4. **Add account / re-login:** open the CLI's existing login flow in Terminal. The app never sees or stores credentials. Refresh afterwards.
 5. **Make default:** affects new, otherwise unbound contexts only, and asks first.
-6. **Projects:** pick or type a folder to see its effective account and the binding it inherits from, then save or remove a binding. The closest binding wins. A binding whose folder no longer exists can still be removed.
-7. **Sessions:** session metadata across accounts, newest first. Copying and resuming stay in the CLI ([sessions guide](../sessions.md)).
+6. **Move to Trash:** a managed account's directory goes to the Trash, and its bindings go with it; if it was the default, the standard account becomes the default. The standard account cannot be removed. If the Trash refuses the move, nothing changes; deleting outright stays `claude-acc remove --purge`.
+7. **Projects:** pick or type a folder to see its effective account and the binding it inherits from, then save or remove a binding. The closest binding wins. A binding whose folder no longer exists can still be removed.
+8. **Sessions:** session metadata across accounts, newest first. Copying and resuming stay in the CLI ([sessions guide](../sessions.md)).
 
 Closing the window keeps the menu bar item running. From it you can launch an account in your home directory, open Projects, refresh, or quit, and all of that works with the window closed. Shortcuts: ⌘1/2/3 switch pages, ⌘N adds an account, ⌘R refreshes.
 
