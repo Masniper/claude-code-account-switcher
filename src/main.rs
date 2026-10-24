@@ -11,7 +11,7 @@ mod vscode;
 mod windows_invocation;
 
 use clap::{Parser, Subcommand};
-use claude_acc::{config, environment, identity, quoting, resolve, seed, sessions, trash};
+use claude_acc::{config, environment, identity, import, quoting, resolve, seed, sessions, trash};
 use commands::activate::ShellSyntax;
 use config::AppConfig;
 use i18n::I18n;

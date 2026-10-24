@@ -13,6 +13,8 @@ pub mod environment;
 #[doc(hidden)]
 pub mod identity;
 #[doc(hidden)]
+pub mod import;
+#[doc(hidden)]
 pub mod quoting;
 #[doc(hidden)]
 pub mod resolve;
