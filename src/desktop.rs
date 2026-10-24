@@ -362,10 +362,6 @@ fn launch_argv(app: &Path, profile: &Path, via_open: bool) -> (PathBuf, Vec<Stri
     (app.to_path_buf(), vec![switch])
 }
 
-/// Whether the launch detaches on its own. `open` returns as soon as the app
-/// is up, so waiting on it is cheap and reports real failures; running the
-/// executable directly means waiting would block for as long as the app is
-/// open.
 /// Open the app on `profile`. The error is the OS's or the exit status's own
 /// text, for the caller to show.
 pub fn launch(app: &Path, profile: &Path) -> Result<(), String> {
@@ -385,6 +381,10 @@ pub fn launch(app: &Path, profile: &Path) -> Result<(), String> {
     }
 }
 
+/// Whether the launch detaches on its own. `open` returns as soon as the app
+/// is up, so waiting on it is cheap and reports real failures; running the
+/// executable directly means waiting would block for as long as the app is
+/// open.
 pub fn launch_detaches() -> bool {
     cfg!(target_os = "macos")
 }
