@@ -26,3 +26,5 @@ pub mod sessions;
 pub mod statusline;
 #[doc(hidden)]
 pub mod trash;
+#[doc(hidden)]
+pub mod vscode;

@@ -7,12 +7,12 @@ mod desktop_auth;
 mod desktop_runtime;
 mod i18n;
 mod ide;
-mod vscode;
 mod windows_invocation;
 
 use clap::{Parser, Subcommand};
 use claude_acc::{
     config, environment, identity, import, quoting, resolve, seed, sessions, statusline, trash,
+    vscode,
 };
 use commands::activate::ShellSyntax;
 use config::AppConfig;
