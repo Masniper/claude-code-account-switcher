@@ -16,7 +16,7 @@
 //! |---|---|
 //! | macOS | `~/.Trash/<name>` |
 //! | Linux | `$XDG_DATA_HOME/Trash` (default `~/.local/share/Trash`), per the freedesktop spec: the directory under `files/`, a `.trashinfo` beside it under `info/` |
-//! | Windows | unsupported — the Recycle Bin needs a Win32 shell call this tool has no binding for |
+//! | Windows | the Recycle Bin, through the shell's own delete, by way of PowerShell |
 //!
 //! The `.trashinfo` file is what makes a Linux file manager offer "Restore".
 //! Without it the directory still sits in the trash folder, but nothing knows
@@ -32,11 +32,46 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// `ErrorKind::Unsupported` means this platform has no trash we can reach, and
 /// is the caller's cue to fall back — it is not a failure to report as one.
 pub fn trash_dir(path: &Path) -> io::Result<PathBuf> {
+    // First, on every platform: a path with no name (a root) is never sent
+    // anywhere, the Recycle Bin included.
     let stem = path
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name to trash"))?;
+    if cfg!(windows) {
+        return recycle(path);
+    }
     trash_dir_into(&trash_root()?, path, stem)
+}
+
+/// Send `path` to the Recycle Bin with the shell's own delete.
+///
+/// `AllDialogs` on purpose: a folder too big for the Recycle Bin would be
+/// deleted for good, and only the dialogs make Windows ask first. Cancelling
+/// leaves the folder where it was, which is reported as a failure, so a
+/// caller that promised "Trash" never deletes. The path reaches PowerShell
+/// as an environment variable, never inside the command text. The Recycle
+/// Bin gives no path back, so its name is returned for messages.
+///
+/// Any failure is `Interrupted`, not `Unsupported`: the folder is still
+/// there, and `claude-acc remove` must not go on to delete it after someone
+/// cancelled Windows' "delete permanently?" question.
+fn recycle(path: &Path) -> io::Result<PathBuf> {
+    const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; \
+        Add-Type -AssemblyName Microsoft.VisualBasic; \
+        [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(\
+        $env:CLAUDE_ACC_RECYCLE, 'AllDialogs', 'SendToRecycleBin', 'ThrowException')";
+    let status = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .env("CLAUDE_ACC_RECYCLE", path)
+        .status()?;
+    if !status.success() || path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "the Recycle Bin did not take it",
+        ));
+    }
+    Ok(PathBuf::from("Recycle Bin"))
 }
 
 /// The move itself, with the trash location passed in so it can be tested
