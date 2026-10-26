@@ -57,4 +57,5 @@ jobs:
           path: |
             apps/manager/src-tauri/target/release/bundle/nsis/*.exe
             apps/manager/src-tauri/target/release/claude-acc-manager.exe
+            apps/manager/src-tauri/binaries/claude-acc-*.exe
           if-no-files-found: error
