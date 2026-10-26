@@ -319,10 +319,10 @@ fn parse_ps(output: &str) -> Vec<Instance> {
 
 /// Whether reading a profile's identity works here. The credential scheme is
 /// Chromium's, but the way the key is stored is not: macOS uses the Keychain,
-/// Windows DPAPI, Linux libsecret or a plaintext fallback. Only the macOS
-/// half is implemented — see #75.
+/// Windows DPAPI, Linux libsecret or a plaintext fallback. The macOS and
+/// Windows halves are implemented — see #75.
 pub fn identity_supported() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", windows))
 }
 
 /// The installed `Claude.app`, or `None` if it isn't where we look.

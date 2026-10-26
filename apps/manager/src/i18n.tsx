@@ -382,7 +382,7 @@ const en = {
   desktopUsageTitle: (name: string) => `Read the usage of ${name}?`,
   desktopUsageConfirm: "Read usage",
   desktopUsageBody:
-    "macOS will ask for your login keychain password: reading a profile's account and usage means decrypting its token, and the key for that is in the Claude Safe Storage keychain entry. The profile and usage APIs are then asked, and the profile's account is remembered for the list. Declining only costs this reading.",
+    "Reading a profile's account and usage means decrypting its token. On macOS the key is in the Claude Safe Storage keychain entry, so macOS will ask for your login keychain password; declining only costs this reading. On Windows the key is unwrapped for your user without asking. The profile and usage APIs are then asked, and the profile's account is remembered for the list.",
   desktopCopyAction: "Copy into…",
   desktopCopyTitle: (name: string) => `Copy into ${name}?`,
   desktopCopyWhat: "What",
