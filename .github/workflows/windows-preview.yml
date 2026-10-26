@@ -39,6 +39,14 @@ jobs:
           npm run build
           npm run prepare:cli
 
+      # The Windows-only paths (DPAPI, the wrapper copy, process parsing)
+      # are only exercised here.
+      - name: cargo test (CLI and library)
+        run: cargo test --release
+
+      - name: cargo test (manager)
+        run: cargo test --manifest-path apps/manager/src-tauri/Cargo.toml --release
+
       - name: Bundle an NSIS installer
         working-directory: apps/manager
         run: npm run tauri -- build --bundles nsis
