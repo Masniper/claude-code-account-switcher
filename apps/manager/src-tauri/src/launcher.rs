@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-// Only the macOS launcher reports a state; elsewhere there is no launch.
+// Only the macOS launcher can be `Pending`; Windows reports `Started`, and
+// elsewhere there is no launch.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum LaunchState {
     /// The launcher ran in Terminal and handed over to the CLI. Whatever the
@@ -108,7 +109,67 @@ pub fn open_terminal(
     macos::launch(&request, "Terminal", std::time::Duration::from_secs(10))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// A new console window running the bundled CLI in `directory`.
+///
+/// No user data is written into the `cmd` line: it is constant apart from
+/// the environment variables it names, which `cmd` expands once and does
+/// not parse again. The CLI path is quoted there; the action and the
+/// `--seed` word are fixed by this app, and the account name is limited to
+/// `[A-Za-z0-9_-]` by `check_launch`. The directory is the process's
+/// working directory, never part of the line. `pause` keeps the window open
+/// on a failure, so the CLI's message can be read. `Started` means the
+/// window was created, not that Claude signed in.
+#[cfg(windows)]
+pub fn open_terminal(
+    home: &Path,
+    directory: &Path,
+    account: &str,
+    action: LaunchAction,
+) -> Result<Launch, AppError> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+    let cli = sidecar()?;
+    let mut command = std::process::Command::new("cmd.exe");
+    command
+        .raw_arg(WINDOWS_LINE)
+        .current_dir(directory)
+        .env_remove("CLAUDE_SECURESTORAGE_CONFIG_DIR")
+        .creation_flags(CREATE_NEW_CONSOLE);
+    for (key, value) in windows_env(home, &cli, account, action) {
+        command.env(key, value);
+    }
+    command.spawn().map_err(|_| AppError::LauncherFailed)?;
+    Ok(Launch {
+        state: LaunchState::Started,
+    })
+}
+
+/// The whole `cmd` line. Constant, so nothing in it can be injected.
+#[cfg_attr(not(windows), allow(dead_code))]
+const WINDOWS_LINE: &str =
+    r#"/d /s /c ""%CLAUDE_ACC_LAUNCH_CLI%" %CLAUDE_ACC_LAUNCH_ARGS% || pause""#;
+
+/// What `WINDOWS_LINE` reads. `HOME` too, as on macOS, for anything the CLI
+/// starts that honours it.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_env(
+    home: &Path,
+    cli: &Path,
+    account: &str,
+    action: LaunchAction,
+) -> Vec<(&'static str, String)> {
+    let seed = if action.seeds() { " --seed" } else { "" };
+    vec![
+        ("HOME", home.to_string_lossy().into_owned()),
+        ("CLAUDE_ACC_LAUNCH_CLI", cli.to_string_lossy().into_owned()),
+        (
+            "CLAUDE_ACC_LAUNCH_ARGS",
+            format!("{}{seed} {account}", action.command()),
+        ),
+    ]
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 pub fn open_terminal(
     _home: &Path,
     _directory: &Path,
@@ -258,6 +319,31 @@ exit "$status"
             std::thread::sleep(Duration::from_millis(100));
         }
         LaunchState::Started
+    }
+}
+
+// Not in `tests`, which is macOS-only: this decision is checked everywhere.
+#[cfg(test)]
+mod windows_line_tests {
+    use super::*;
+
+    #[test]
+    fn the_windows_line_reads_only_its_own_variables_and_the_args_are_fixed_words() {
+        // Nothing but these two names may be expanded by `cmd`: any other
+        // `%...%` would be a value this app does not control.
+        let names: Vec<_> = WINDOWS_LINE.split('%').skip(1).step_by(2).collect();
+        assert_eq!(names, ["CLAUDE_ACC_LAUNCH_CLI", "CLAUDE_ACC_LAUNCH_ARGS"]);
+        let args = |action| {
+            windows_env(Path::new("/h"), Path::new("/cli"), "work", action)
+                .into_iter()
+                .find(|(k, _)| *k == "CLAUDE_ACC_LAUNCH_ARGS")
+                .unwrap()
+                .1
+        };
+        assert_eq!(args(LaunchAction::Run), "run work");
+        assert_eq!(args(LaunchAction::Login), "login work");
+        assert_eq!(args(LaunchAction::Add), "add work");
+        assert_eq!(args(LaunchAction::AddSeeded), "add --seed work");
     }
 }
 

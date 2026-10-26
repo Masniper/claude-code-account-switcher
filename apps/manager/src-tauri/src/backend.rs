@@ -15,14 +15,14 @@ use tauri::{AppHandle, Emitter, Manager};
 #[serde(rename_all = "snake_case")]
 pub enum AppError {
     CliMissing,
-    // Constructed only by the macOS launcher; elsewhere `open_terminal`
-    // fails earlier with `TerminalMacosOnly`.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    // Constructed only by the macOS and Windows launchers; elsewhere
+    // `open_terminal` fails earlier with `TerminalMacosOnly`.
+    #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
     LauncherFailed,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     TerminalFailed,
-    // Constructed only where there is no Terminal launcher.
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
+    // Constructed only where there is no launcher.
+    #[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
     TerminalMacosOnly,
     BackendFailed,
     // Untagged variants must come last; serializes as the bare GuiError code.
