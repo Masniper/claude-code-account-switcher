@@ -1173,10 +1173,6 @@ fn vscode_install_in(
     editors_root: &Path,
     force: bool,
 ) -> Result<Vec<Editor>, GuiError> {
-    if cfg!(windows) {
-        // The wrapper is a shell script; the CLI refuses here too.
-        return Err(GuiError::UnsupportedPlatform);
-    }
     let bin = config.base_dir.join("bin").join(binary_name());
     if !bin.is_file() {
         return Err(GuiError::CliNotInstalled);
@@ -1202,16 +1198,10 @@ fn vscode_install_in(
     Ok(vscode_editors_in(config, editors_root))
 }
 
-#[cfg(not(windows))]
 fn write_vscode_wrapper(config: &AppConfig, bin: &Path) -> Result<(), GuiError> {
     vscode::install_wrapper(&config.base_dir, bin)
         .map(|_| ())
         .map_err(|_| GuiError::StorageWriteFailed)
-}
-
-#[cfg(windows)]
-fn write_vscode_wrapper(_: &AppConfig, _: &Path) -> Result<(), GuiError> {
-    Err(GuiError::UnsupportedPlatform)
 }
 
 /// Undo [`vscode_install`] for the editors installed here; the rules are on

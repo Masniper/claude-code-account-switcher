@@ -1138,15 +1138,13 @@ impl I18n {
                  читать её нельзя, поэтому они вообще сообщат об отсутствии \
                  токена. Снимите переменную совсем.",
             ),
-            (Msg::VscodeWindowsUnsupported, Lang::En) => s(
-                "Not on Windows yet: the wrapper is a shell script, and a .cmd \
-                 or .exe shim the extension can spawn hasn't been built. \
-                 Terminal mode (claudeCode.useTerminal) works there today.",
+            (Msg::VscodeWrapperNoBinary, Lang::En) => s(
+                "claude-acc: no executable to launch — claudeCode.claudeProcessWrapper \
+                 is called with the real binary as its first argument",
             ),
-            (Msg::VscodeWindowsUnsupported, Lang::Ru) => s(
-                "Пока не на Windows: wrapper — это shell-скрипт, а .cmd/.exe \
-                 шима, который расширение сможет запустить, ещё нет. Режим \
-                 терминала (claudeCode.useTerminal) там работает уже сейчас.",
+            (Msg::VscodeWrapperNoBinary, Lang::Ru) => s(
+                "claude-acc: нечего запускать — claudeCode.claudeProcessWrapper \
+                 вызывается с настоящим бинарником первым аргументом",
             ),
             (Msg::VscodeNoEditors, Lang::En) => {
                 s("No VS Code, VS Code Insiders, VSCodium or Cursor found on this machine.")
@@ -1433,7 +1431,7 @@ pub enum Msg {
     DoctorCredentialStoreLegacy,
     UsageFromCache(u64),
     UsageWindowHasReset,
-    VscodeWindowsUnsupported,
+    VscodeWrapperNoBinary,
     VscodeNoEditors,
     VscodeWrapperFailed(String),
     VscodeConfigured(String, String),

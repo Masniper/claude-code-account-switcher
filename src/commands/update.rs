@@ -147,7 +147,6 @@ fn refresh_wrapper(config: &AppConfig, binary: &Path, i18n: &I18n) {
 
 /// Same reasoning for the VS Code launcher, and same rule: refresh one that
 /// is already there, never install one that isn't.
-#[cfg(not(windows))]
 fn refresh_vscode_wrapper(config: &AppConfig, binary: &Path, i18n: &I18n) {
     if !crate::vscode::wrapper_path(&config.base_dir).exists() {
         return;
@@ -156,9 +155,6 @@ fn refresh_vscode_wrapper(config: &AppConfig, binary: &Path, i18n: &I18n) {
         i18n.print(Msg::UpdateWrapperFailed(e.to_string()));
     }
 }
-
-#[cfg(windows)]
-fn refresh_vscode_wrapper(_config: &AppConfig, _binary: &Path, _i18n: &I18n) {}
 
 /// Where `install` puts the generated `claude` wrapper.
 fn wrapper_path(config: &AppConfig) -> PathBuf {

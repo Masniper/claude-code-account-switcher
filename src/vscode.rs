@@ -94,7 +94,34 @@ pub fn detect_editors_in(root: &Path) -> Vec<Editor> {
 
 /// Where the wrapper lives once installed.
 pub fn wrapper_path(base_dir: &Path) -> PathBuf {
-    base_dir.join("bin").join(WRAPPER_NAME)
+    if cfg!(windows) {
+        base_dir.join("bin").join(format!("{WRAPPER_NAME}.exe"))
+    } else {
+        base_dir.join("bin").join(WRAPPER_NAME)
+    }
+}
+
+/// Whether this process was started as the wrapper: on Windows the wrapper
+/// is a copy of `claude-acc.exe` under the wrapper's name (see
+/// `install_wrapper`), and it is told apart from a plain `claude-acc` by the
+/// name it was run under.
+pub fn invoked_as_wrapper(argv0: &std::ffi::OsStr) -> bool {
+    Path::new(argv0)
+        .file_stem()
+        .is_some_and(|stem| stem.eq_ignore_ascii_case(WRAPPER_NAME))
+}
+
+/// Write `bin\claude-vscode.exe`: a copy of `claude-acc.exe` that acts as
+/// the wrapper when it runs under that name. Not a `.cmd`: Node refuses to
+/// spawn a batch file without a shell since its April 2024 security release
+/// (CVE-2024-27980), and the extension's way of spawning it is not ours to
+/// rely on. Always overwrites, as the Unix wrapper does.
+#[cfg(windows)]
+pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Result<PathBuf> {
+    let wrapper = wrapper_path(base_dir);
+    fs::create_dir_all(base_dir.join("bin"))?;
+    fs::copy(claude_acc_bin, &wrapper)?;
+    Ok(wrapper)
 }
 
 /// Write `~/.claude-switch/bin/claude-vscode`. Always overwrites, like the
@@ -630,6 +657,39 @@ fn skip_value(b: &[u8], i: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wrapper_is_recognised_by_the_name_it_runs_under() {
+        use std::ffi::OsStr;
+        for name in [
+            "claude-vscode",
+            "claude-vscode.exe",
+            "/x/bin/claude-vscode.exe",
+            "CLAUDE-VSCODE.EXE",
+        ] {
+            assert!(invoked_as_wrapper(OsStr::new(name)), "{name}");
+        }
+        for name in [
+            "claude-acc",
+            "claude-acc.exe",
+            "claude",
+            "claude-vscode-old.exe",
+        ] {
+            assert!(!invoked_as_wrapper(OsStr::new(name)), "{name}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_windows_wrapper_is_a_copy_of_the_binary_under_its_own_name() {
+        let dir = scratch("win-wrapper");
+        let bin = dir.join("claude-acc.exe");
+        fs::write(&bin, b"MZ binary").unwrap();
+        let wrapper = install_wrapper(&dir, &bin).unwrap();
+        assert_eq!(wrapper, dir.join("bin").join("claude-vscode.exe"));
+        assert_eq!(fs::read(&wrapper).unwrap(), b"MZ binary");
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     const KEY: &str = WRAPPER_SETTING;
 

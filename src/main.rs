@@ -325,6 +325,14 @@ fn should_show_update_hint(command: &Option<Commands>) -> bool {
 }
 
 fn main() {
+    // Run as the Windows VS Code wrapper: its arguments are the extension's
+    // binary and that binary's own, nothing clap should read.
+    if std::env::args_os()
+        .next()
+        .is_some_and(|argv0| claude_acc::vscode::invoked_as_wrapper(&argv0))
+    {
+        std::process::exit(commands::vscode::wrap(&AppConfig::new(), &I18n::new()));
+    }
     let cli = Cli::parse();
     let config = AppConfig::new();
     config
