@@ -210,6 +210,23 @@ pub struct Instance {
 /// registered for the scheme — not necessarily the one that started the
 /// login. Once a profile is signed in, instances coexist happily.
 pub fn running_instances() -> Vec<Instance> {
+    if cfg!(windows) {
+        // `tasklist` has no command lines, and the profile is in the command
+        // line; CIM has both.
+        let Ok(out) = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | \
+                 ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }",
+            ])
+            .output()
+        else {
+            return Vec::new();
+        };
+        return parse_windows_processes(&String::from_utf8_lossy(&out.stdout));
+    }
     if !cfg!(target_os = "macos") {
         return Vec::new();
     }
@@ -220,6 +237,47 @@ pub fn running_instances() -> Vec<Instance> {
         return Vec::new();
     };
     parse_ps(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Main app processes from `<pid> <command line>` lines, as the Windows query
+/// in `running_instances` prints them for every `claude.exe`.
+///
+/// Chromium's children carry `--type=`, so a line with it is a helper. The
+/// profile is the last component of `--user-data-dir`, which is quoted with
+/// the whole argument when the path has a space in it (`"--user-data-dir=C:\
+/// Users\John Doe\..."`), or on its own (`--user-data-dir="..."`). Split on
+/// both separators by hand, so the parsing is the same wherever it is tested.
+fn parse_windows_processes(output: &str) -> Vec<Instance> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.trim().split_once(char::is_whitespace)?;
+            if rest.contains("--type=") {
+                return None;
+            }
+            const SWITCH: &str = "--user-data-dir=";
+            let profile = rest.find(SWITCH).map(|at| {
+                let quoted_whole = rest[..at].ends_with('"');
+                let value = &rest[at + SWITCH.len()..];
+                let value = match value.strip_prefix('"') {
+                    Some(inner) => inner.split('"').next().unwrap_or(inner),
+                    None if quoted_whole => value.split('"').next().unwrap_or(value),
+                    None => value.split_whitespace().next().unwrap_or(value),
+                };
+                let trimmed = value.trim_end_matches(['\\', '/']);
+                trimmed
+                    .rsplit(['\\', '/'])
+                    .next()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or(value)
+                    .to_string()
+            });
+            Some(Instance {
+                pid: pid.parse().ok()?,
+                profile,
+            })
+        })
+        .collect()
 }
 
 /// Main app processes from `ps` output, with the profile each is on.
@@ -602,6 +660,32 @@ mod tests {
                 profile: Some("work".to_string())
             }
         );
+    }
+
+    #[test]
+    fn windows_instances_name_their_profile_however_the_argument_is_quoted() {
+        let out = "\
+1200 \"C:\\Users\\a\\AppData\\Local\\AnthropicClaude\\app-1.0\\claude.exe\"\r
+1300 \"C:\\x\\claude.exe\" --user-data-dir=C:\\Users\\a\\.claude-switch\\desktop\\work\r
+1400 \"C:\\x\\claude.exe\" \"--user-data-dir=C:\\Users\\John Doe\\.claude-switch\\desktop\\design\"\r
+1500 \"C:\\x\\claude.exe\" --user-data-dir=\"C:\\Users\\John Doe\\desktop\\x\\\"\r
+1600 \"C:\\x\\claude.exe\" --type=renderer --user-data-dir=C:\\p\\work\r
+";
+        let found = parse_windows_processes(out);
+        let profiles: Vec<_> = found
+            .iter()
+            .map(|i| (i.pid, i.profile.as_deref()))
+            .collect();
+        assert_eq!(
+            profiles,
+            [
+                (1200, None),
+                (1300, Some("work")),
+                (1400, Some("design")),
+                (1500, Some("x")),
+            ]
+        );
+        assert!(parse_windows_processes("").is_empty());
     }
 
     #[test]
