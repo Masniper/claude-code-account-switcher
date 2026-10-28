@@ -3,6 +3,8 @@ mod commands;
 mod i18n;
 mod ide;
 mod windows_invocation;
+#[cfg(windows)]
+mod windows_helpers;
 
 use clap::{Parser, Subcommand};
 #[cfg(target_os = "macos")]

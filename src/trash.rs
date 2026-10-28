@@ -57,20 +57,47 @@ pub fn trash_dir(path: &Path) -> io::Result<PathBuf> {
 /// there, and `claude-acc remove` must not go on to delete it after someone
 /// cancelled Windows' "delete permanently?" question.
 fn recycle(path: &Path) -> io::Result<PathBuf> {
+    // OnlyErrorDialogs: quieter UX, only prompts on actual errors (disk full, etc.)
     const SCRIPT: &str = "$ErrorActionPreference = 'Stop'; \
         Add-Type -AssemblyName Microsoft.VisualBasic; \
-        [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(\
-        $env:CLAUDE_ACC_RECYCLE, 'AllDialogs', 'SendToRecycleBin', 'ThrowException')";
-    let status = std::process::Command::new("powershell.exe")
+        try { \
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(\
+            $env:CLAUDE_ACC_RECYCLE, 'OnlyErrorDialogs', 'SendToRecycleBin'); \
+            exit 0 \
+        } catch { \
+            if ($_.Exception.Message -match 'cancel') { exit 2 } \
+            else { Write-Error $_.Exception.Message; exit 1 } \
+        }";
+    
+    let output = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
         .env("CLAUDE_ACC_RECYCLE", path)
-        .status()?;
-    if !status.success() || path.exists() {
+        .output()?;
+    
+    // Check both exit code and whether path still exists
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(1);
+        return if code == 2 {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Recycle Bin operation cancelled",
+            ))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(io::Error::new(
+                io::ErrorKind::Other,
+                format!("Recycle Bin failed: {}", stderr),
+            ))
+        };
+    }
+    
+    if path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
-            "the Recycle Bin did not take it",
+            "Path still exists after Recycle Bin attempt",
         ));
     }
+    
     Ok(PathBuf::from("Recycle Bin"))
 }
 
