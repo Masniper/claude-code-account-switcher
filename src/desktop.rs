@@ -16,6 +16,47 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::AppConfig;
+use crate::identity;
+use std::collections::HashMap;
+
+/// `accountUuid` -> email for every account this tool manages, read from each
+/// config dir's own `.claude.json`.
+///
+/// A Desktop profile records the uuid it last signed in as, but not the
+/// email; the CLI side has both. When the same person is signed into a
+/// profile and into an account here, matching the two is enough to name the
+/// profile — a couple of local JSON reads, no Keychain prompt and no network,
+/// which is the whole reason it belongs in `list` rather than in `usage`.
+pub fn cli_identities(config: &AppConfig) -> HashMap<String, String> {
+    let mut known = HashMap::new();
+    let dirs = config
+        .list_accounts()
+        .unwrap_or_default()
+        .iter()
+        .map(|a| config.account_path(a))
+        .chain(identity::standard_token_dir())
+        .collect::<Vec<_>>();
+    for dir in dirs {
+        if let Some(id) = identity::local_identity(&dir)
+            && let Some(email) = id.email
+        {
+            known.insert(id.uuid.to_lowercase(), email);
+        }
+    }
+    known
+}
+
+/// The email of the account `uuid` belongs to, if this tool manages it.
+///
+/// Compared case-insensitively: Claude Desktop writes the uuid into its
+/// `config.json` and Claude Code writes it into `.claude.json`, and nothing
+/// promises the two agree on case.
+pub fn borrowed_email<'a>(
+    uuid: Option<&str>,
+    known: &'a HashMap<String, String>,
+) -> Option<&'a str> {
+    known.get(&uuid?.to_lowercase()).map(String::as_str)
+}
 
 /// Overrides the located `Claude.app`. For testing, and for anyone whose app
 /// lives somewhere the search below doesn't reach.
@@ -169,6 +210,23 @@ pub struct Instance {
 /// registered for the scheme — not necessarily the one that started the
 /// login. Once a profile is signed in, instances coexist happily.
 pub fn running_instances() -> Vec<Instance> {
+    if cfg!(windows) {
+        // `tasklist` has no command lines, and the profile is in the command
+        // line; CIM has both.
+        let Ok(out) = Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance Win32_Process -Filter \"Name='claude.exe'\" | \
+                 ForEach-Object { \"$($_.ProcessId) $($_.CommandLine)\" }",
+            ])
+            .output()
+        else {
+            return Vec::new();
+        };
+        return parse_windows_processes(&String::from_utf8_lossy(&out.stdout));
+    }
     if !cfg!(target_os = "macos") {
         return Vec::new();
     }
@@ -179,6 +237,47 @@ pub fn running_instances() -> Vec<Instance> {
         return Vec::new();
     };
     parse_ps(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Main app processes from `<pid> <command line>` lines, as the Windows query
+/// in `running_instances` prints them for every `claude.exe`.
+///
+/// Chromium's children carry `--type=`, so a line with it is a helper. The
+/// profile is the last component of `--user-data-dir`, which is quoted with
+/// the whole argument when the path has a space in it (`"--user-data-dir=C:\
+/// Users\John Doe\..."`), or on its own (`--user-data-dir="..."`). Split on
+/// both separators by hand, so the parsing is the same wherever it is tested.
+fn parse_windows_processes(output: &str) -> Vec<Instance> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (pid, rest) = line.trim().split_once(char::is_whitespace)?;
+            if rest.contains("--type=") {
+                return None;
+            }
+            const SWITCH: &str = "--user-data-dir=";
+            let profile = rest.find(SWITCH).map(|at| {
+                let quoted_whole = rest[..at].ends_with('"');
+                let value = &rest[at + SWITCH.len()..];
+                let value = match value.strip_prefix('"') {
+                    Some(inner) => inner.split('"').next().unwrap_or(inner),
+                    None if quoted_whole => value.split('"').next().unwrap_or(value),
+                    None => value.split_whitespace().next().unwrap_or(value),
+                };
+                let trimmed = value.trim_end_matches(['\\', '/']);
+                trimmed
+                    .rsplit(['\\', '/'])
+                    .next()
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or(value)
+                    .to_string()
+            });
+            Some(Instance {
+                pid: pid.parse().ok()?,
+                profile,
+            })
+        })
+        .collect()
 }
 
 /// Main app processes from `ps` output, with the profile each is on.
@@ -220,10 +319,10 @@ fn parse_ps(output: &str) -> Vec<Instance> {
 
 /// Whether reading a profile's identity works here. The credential scheme is
 /// Chromium's, but the way the key is stored is not: macOS uses the Keychain,
-/// Windows DPAPI, Linux libsecret or a plaintext fallback. Only the macOS
-/// half is implemented — see #75.
+/// Windows DPAPI, Linux libsecret or a plaintext fallback. The macOS and
+/// Windows halves are implemented — see #75.
 pub fn identity_supported() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", windows))
 }
 
 /// The installed `Claude.app`, or `None` if it isn't where we look.
@@ -321,6 +420,25 @@ fn launch_argv(app: &Path, profile: &Path, via_open: bool) -> (PathBuf, Vec<Stri
     (app.to_path_buf(), vec![switch])
 }
 
+/// Open the app on `profile`. The error is the OS's or the exit status's own
+/// text, for the caller to show.
+pub fn launch(app: &Path, profile: &Path) -> Result<(), String> {
+    let mut cmd = launch_command(app, profile);
+    if !launch_detaches() {
+        // The app itself is the child here, and it lives as long as its
+        // window does — waiting would hang the caller for the session.
+        return cmd.spawn().map(|_| ()).map_err(|e| e.to_string());
+    }
+    // `open` returns as soon as the app is up, so waiting costs a moment and
+    // buys a real exit status — spawning instead would report success even
+    // when the app failed to start.
+    match cmd.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => Err(status.to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Whether the launch detaches on its own. `open` returns as soon as the app
 /// is up, so waiting on it is cheap and reports real failures; running the
 /// executable directly means waiting would block for as long as the app is
@@ -396,6 +514,35 @@ pub fn is_signed_in(profile: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn known(uuid: &str, email: &str) -> HashMap<String, String> {
+        HashMap::from([(uuid.to_string(), email.to_string())])
+    }
+
+    #[test]
+    fn the_uuid_match_ignores_case() {
+        // Two different files written by two different programs; nothing
+        // promises they agree on case.
+        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
+        assert_eq!(
+            borrowed_email(Some("AA6C22D5-F7D1-4AC1-BB29-22ABC90481C1"), &map),
+            Some("a@b.com")
+        );
+    }
+
+    #[test]
+    fn nothing_to_match_borrows_nothing() {
+        let map = known("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1", "a@b.com");
+        assert_eq!(borrowed_email(None, &map), None);
+        assert_eq!(borrowed_email(Some("aa6c22d5"), &map), None);
+        assert_eq!(
+            borrowed_email(
+                Some("aa6c22d5-f7d1-4ac1-bb29-22abc90481c1"),
+                &HashMap::new()
+            ),
+            None
+        );
+    }
 
     fn temp_config(tag: &str) -> AppConfig {
         let base = std::env::temp_dir().join(format!("cc-desktop-{}-{}", tag, std::process::id()));
@@ -513,6 +660,32 @@ mod tests {
                 profile: Some("work".to_string())
             }
         );
+    }
+
+    #[test]
+    fn windows_instances_name_their_profile_however_the_argument_is_quoted() {
+        let out = "\
+1200 \"C:\\Users\\a\\AppData\\Local\\AnthropicClaude\\app-1.0\\claude.exe\"\r
+1300 \"C:\\x\\claude.exe\" --user-data-dir=C:\\Users\\a\\.claude-switch\\desktop\\work\r
+1400 \"C:\\x\\claude.exe\" \"--user-data-dir=C:\\Users\\John Doe\\.claude-switch\\desktop\\design\"\r
+1500 \"C:\\x\\claude.exe\" --user-data-dir=\"C:\\Users\\John Doe\\desktop\\x\\\"\r
+1600 \"C:\\x\\claude.exe\" --type=renderer --user-data-dir=C:\\p\\work\r
+";
+        let found = parse_windows_processes(out);
+        let profiles: Vec<_> = found
+            .iter()
+            .map(|i| (i.pid, i.profile.as_deref()))
+            .collect();
+        assert_eq!(
+            profiles,
+            [
+                (1200, None),
+                (1300, Some("work")),
+                (1400, Some("design")),
+                (1500, Some("x")),
+            ]
+        );
+        assert!(parse_windows_processes("").is_empty());
     }
 
     #[test]

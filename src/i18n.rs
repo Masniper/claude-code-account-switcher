@@ -311,6 +311,36 @@ impl I18n {
                 )
             }
 
+            // Windows-specific errors
+            (Msg::WindowsExecutionPolicyBlocked, Lang::En) => s(
+                "PowerShell ExecutionPolicy is Restricted, which blocks profile scripts.\n\
+                 Run: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+            ),
+            (Msg::WindowsExecutionPolicyBlocked, Lang::Ru) => s(
+                "PowerShell ExecutionPolicy установлен в Restricted, что блокирует скрипты профиля.\n\
+                 Выполните: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+            ),
+            (Msg::WindowsRecycleBinFailed(ref e), Lang::En) => {
+                format!("Failed to move to Recycle Bin: {}. Deleting directly instead.", e)
+            },
+            (Msg::WindowsRecycleBinFailed(ref e), Lang::Ru) => {
+                format!("Не удалось переместить в Корзину: {}. Удаляю напрямую.", e)
+            },
+            (Msg::WindowsStoreNotSupported, Lang::En) => s(
+                "Claude Code installed from Microsoft Store cannot be managed with separate profiles.\n\
+                 Install from claude.com/download instead. See issue #75."
+            ),
+            (Msg::WindowsStoreNotSupported, Lang::Ru) => s(
+                "Claude Code из Microsoft Store не поддерживает отдельные профили.\n\
+                 Установите с claude.com/download. См. issue #75."
+            ),
+            (Msg::WindowsPathNotUpdated, Lang::En) => s(
+                "PATH was updated for current session only. Restart PowerShell to persist."
+            ),
+            (Msg::WindowsPathNotUpdated, Lang::Ru) => s(
+                "PATH обновлён только для текущей сессии. Перезапустите PowerShell для сохранения."
+            ),
+
             // import
             (Msg::ImportSourceNotDir(ref p), Lang::En) => {
                 format!("Source '{}' is not a directory.", p)
@@ -1138,15 +1168,13 @@ impl I18n {
                  читать её нельзя, поэтому они вообще сообщат об отсутствии \
                  токена. Снимите переменную совсем.",
             ),
-            (Msg::VscodeWindowsUnsupported, Lang::En) => s(
-                "Not on Windows yet: the wrapper is a shell script, and a .cmd \
-                 or .exe shim the extension can spawn hasn't been built. \
-                 Terminal mode (claudeCode.useTerminal) works there today.",
+            (Msg::VscodeWrapperNoBinary, Lang::En) => s(
+                "claude-acc: no executable to launch — claudeCode.claudeProcessWrapper \
+                 is called with the real binary as its first argument",
             ),
-            (Msg::VscodeWindowsUnsupported, Lang::Ru) => s(
-                "Пока не на Windows: wrapper — это shell-скрипт, а .cmd/.exe \
-                 шима, который расширение сможет запустить, ещё нет. Режим \
-                 терминала (claudeCode.useTerminal) там работает уже сейчас.",
+            (Msg::VscodeWrapperNoBinary, Lang::Ru) => s(
+                "claude-acc: нечего запускать — claudeCode.claudeProcessWrapper \
+                 вызывается с настоящим бинарником первым аргументом",
             ),
             (Msg::VscodeNoEditors, Lang::En) => {
                 s("No VS Code, VS Code Insiders, VSCodium or Cursor found on this machine.")
@@ -1350,6 +1378,10 @@ pub enum Msg {
     DoctorPartial(usize, usize),
     DoctorSharedIdentity(String),
     DuplicateAccountWarning(String, String),
+    WindowsExecutionPolicyBlocked,
+    WindowsRecycleBinFailed(String),
+    WindowsStoreNotSupported,
+    WindowsPathNotUpdated,
     RelativeTime(u64),
     SeedCopied(String),
     SeedNothingToCopy,
@@ -1433,7 +1465,7 @@ pub enum Msg {
     DoctorCredentialStoreLegacy,
     UsageFromCache(u64),
     UsageWindowHasReset,
-    VscodeWindowsUnsupported,
+    VscodeWrapperNoBinary,
     VscodeNoEditors,
     VscodeWrapperFailed(String),
     VscodeConfigured(String, String),

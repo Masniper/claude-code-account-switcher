@@ -71,6 +71,12 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, force: bool, purge: bool
             name.to_string(),
             dest.display().to_string(),
         )),
+        // The Recycle Bin was cancelled or refused, and the account is still
+        // there: deleting it now would overrule that answer.
+        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+            i18n.print(Msg::RemoveCancelled);
+            std::process::exit(1);
+        }
         Err(_) => {
             fs::remove_dir_all(&acc_dir).expect("Failed to remove account directory");
             i18n.print(Msg::RemoveDeleted(name.to_string()));

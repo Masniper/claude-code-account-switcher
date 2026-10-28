@@ -1,0 +1,61 @@
+name: Windows preview
+
+# A throwaway build of the manager for Windows, on this fork branch only.
+# The manager has never been supported on Windows: launching Claude, login,
+# add, the Trash, VS Code set-up and Desktop usage are macOS-only. This is
+# for trying what does work, not a release. Unsigned.
+on:
+  push:
+    branches: [build/windows-preview]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Manager (Windows preview)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/manager/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch
+        with:
+          toolchain: stable
+
+      - name: npm ci --ignore-scripts
+        working-directory: apps/manager
+        run: npm ci --ignore-scripts
+
+      - name: Build the frontend and the bundled CLI
+        working-directory: apps/manager
+        run: |
+          npm run build
+          npm run prepare:cli
+
+      # The Windows-only paths (DPAPI, the wrapper copy, process parsing)
+      # are only exercised here.
+      - name: cargo test (CLI and library)
+        run: cargo test --release
+
+      - name: cargo test (manager)
+        run: cargo test --manifest-path apps/manager/src-tauri/Cargo.toml --release
+
+      - name: Bundle an NSIS installer
+        working-directory: apps/manager
+        run: npm run tauri -- build --bundles nsis
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: claude-accounts-windows-preview
+          path: |
+            apps/manager/src-tauri/target/release/bundle/nsis/*.exe
+            apps/manager/src-tauri/target/release/claude-acc-manager.exe
+            apps/manager/src-tauri/binaries/claude-acc-*.exe
+          if-no-files-found: error

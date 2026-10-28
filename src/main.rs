@@ -1,24 +1,19 @@
 mod chrome;
 mod commands;
-mod config;
-mod desktop;
-mod desktop_auth;
-// APFS clonefile and /bin/cp -c; the whole mechanism is macOS's.
-#[cfg(target_os = "macos")]
-mod desktop_runtime;
-mod environment;
 mod i18n;
 mod ide;
-mod identity;
-mod quoting;
-mod resolve;
-mod seed;
-mod sessions;
-mod trash;
-mod vscode;
+mod ui;
 mod windows_invocation;
+#[cfg(windows)]
+mod windows_helpers;
 
 use clap::{Parser, Subcommand};
+#[cfg(target_os = "macos")]
+use claude_acc::desktop_runtime;
+use claude_acc::{
+    config, desktop, desktop_auth, environment, identity, import, quoting, resolve, seed, sessions,
+    statusline, trash, update, vscode,
+};
 use commands::activate::ShellSyntax;
 use config::AppConfig;
 use i18n::I18n;
@@ -333,6 +328,18 @@ fn should_show_update_hint(command: &Option<Commands>) -> bool {
 }
 
 fn main() {
+    // Enable colored output on Windows
+    #[cfg(windows)]
+    ui::enable_colors();
+    
+    // Run as the Windows VS Code wrapper: its arguments are the extension's
+    // binary and that binary's own, nothing clap should read.
+    if std::env::args_os()
+        .next()
+        .is_some_and(|argv0| claude_acc::vscode::invoked_as_wrapper(&argv0))
+    {
+        std::process::exit(commands::vscode::wrap(&AppConfig::new(), &I18n::new()));
+    }
     let cli = Cli::parse();
     let config = AppConfig::new();
     config

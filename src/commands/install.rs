@@ -6,18 +6,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Filename the installed binary lives under inside `~/.claude-switch/bin/`.
-/// Windows requires the `.exe` extension or the OS won't execute the file
-/// even when the path is given explicitly.
-pub(crate) fn binary_name() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "claude-acc.exe"
-    } else {
-        "claude-acc"
-    }
-}
+#[cfg(windows)]
+use crate::windows_helpers;
+
+pub(crate) use crate::config::binary_name;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
+    // Windows-specific: check ExecutionPolicy before proceeding
+    #[cfg(windows)]
+    {
+        use crate::windows_helpers::check_execution_policy;
+        if !check_execution_policy() {
+            eprintln!("{}", i18n.msg(Msg::WindowsExecutionPolicyBlocked));
+            eprintln!("\nAfter fixing ExecutionPolicy, run 'claude-acc install' again.");
+            std::process::exit(1);
+        }
+    }
+
     let bin_dir = config.base_dir.join("bin");
     fs::create_dir_all(&bin_dir).expect("Failed to create bin directory");
 
@@ -100,15 +105,11 @@ fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &Path) {
 ///
 /// Only refreshes one that is already there — `install` is not the moment to
 /// start writing into someone's editor config; that is `vscode install`.
-#[cfg(not(windows))]
 fn refresh_vscode_wrapper(config: &AppConfig, claude_acc_bin: &Path) {
     if crate::vscode::wrapper_path(&config.base_dir).exists() {
         let _ = crate::vscode::install_wrapper(&config.base_dir, claude_acc_bin);
     }
 }
-
-#[cfg(windows)]
-fn refresh_vscode_wrapper(_config: &AppConfig, _claude_acc_bin: &Path) {}
 
 fn ensure_shell_integration(config: &AppConfig, i18n: &I18n) {
     let bin_path = config.base_dir.join("bin").join(binary_name());
