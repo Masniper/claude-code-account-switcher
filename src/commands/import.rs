@@ -32,14 +32,45 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, source: &str, move_into:
     }
 
     if move_into {
-        if let Err(e) = fs::rename(&src, &target) {
-            i18n.print(Msg::ImportFailed(e.to_string()));
-            return 1;
+        #[cfg(windows)]
+        {
+            let mut spinner = crate::windows_helpers::ProgressSpinner::new("Moving directory...");
+            for _ in 0..10 { spinner.tick(); std::thread::sleep(std::time::Duration::from_millis(50)); }
+            if let Err(e) = fs::rename(&src, &target) {
+                spinner.fail(&format!("Move failed: {}", e));
+                i18n.print(Msg::ImportFailed(e.to_string()));
+                return 1;
+            }
+            spinner.finish("Directory moved");
         }
-    } else if let Err(e) = import::copy_tree(&src, &target) {
-        let _ = fs::remove_dir_all(&target);
-        i18n.print(Msg::ImportFailed(e.to_string()));
-        return 1;
+        #[cfg(not(windows))]
+        {
+            if let Err(e) = fs::rename(&src, &target) {
+                i18n.print(Msg::ImportFailed(e.to_string()));
+                return 1;
+            }
+        }
+    } else {
+        #[cfg(windows)]
+        {
+            let mut spinner = crate::windows_helpers::ProgressSpinner::new("Copying directory...");
+            let copy_result = import::copy_tree(&src, &target);
+            if let Err(e) = copy_result {
+                spinner.fail(&format!("Copy failed: {}", e));
+                let _ = fs::remove_dir_all(&target);
+                i18n.print(Msg::ImportFailed(e.to_string()));
+                return 1;
+            }
+            spinner.finish("Directory copied");
+        }
+        #[cfg(not(windows))]
+        {
+            if let Err(e) = import::copy_tree(&src, &target) {
+                let _ = fs::remove_dir_all(&target);
+                i18n.print(Msg::ImportFailed(e.to_string()));
+                return 1;
+            }
+        }
     }
 
     // Best-effort: move the Keychain token to the new path. Failure here isn't
