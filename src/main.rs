@@ -2,6 +2,7 @@ mod chrome;
 mod commands;
 mod i18n;
 mod ide;
+mod ui;
 mod windows_invocation;
 #[cfg(windows)]
 mod windows_helpers;
@@ -327,6 +328,10 @@ fn should_show_update_hint(command: &Option<Commands>) -> bool {
 }
 
 fn main() {
+    // Enable colored output on Windows
+    #[cfg(windows)]
+    ui::enable_colors();
+    
     // Run as the Windows VS Code wrapper: its arguments are the extension's
     // binary and that binary's own, nothing clap should read.
     if std::env::args_os()
