@@ -6,9 +6,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(windows)]
+use crate::windows_helpers;
+
 pub(crate) use crate::config::binary_name;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
+    // Windows-specific: check ExecutionPolicy before proceeding
+    #[cfg(windows)]
+    {
+        use crate::windows_helpers::check_execution_policy;
+        if !check_execution_policy() {
+            eprintln!("{}", i18n.msg(Msg::WindowsExecutionPolicyBlocked));
+            eprintln!("\nAfter fixing ExecutionPolicy, run 'claude-acc install' again.");
+            std::process::exit(1);
+        }
+    }
+
     let bin_dir = config.base_dir.join("bin");
     fs::create_dir_all(&bin_dir).expect("Failed to create bin directory");
 

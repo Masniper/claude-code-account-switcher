@@ -113,6 +113,33 @@ fn chrome_off(
 }
 
 pub fn run(config: &AppConfig, i18n: &I18n, json: bool) -> i32 {
+    // Windows-specific environment checks
+    #[cfg(windows)]
+    {
+        let mut warnings = Vec::new();
+        
+        // Check ExecutionPolicy
+        if let Ok(false) = crate::windows_helpers::check_execution_policy().ok().map(|v| v) {
+            warnings.push(i18n.msg(Msg::WindowsExecutionPolicyBlocked));
+        }
+        
+        // Check if Claude Code is Microsoft Store version
+        if let Ok(claude_path) = which::which("claude") {
+            let path_str = claude_path.to_string_lossy().to_lowercase();
+            if path_str.contains("windowsapps") {
+                warnings.push(i18n.msg(Msg::WindowsStoreNotSupported));
+            }
+        }
+        
+        if !warnings.is_empty() && !json {
+            eprintln!("\n⚠ Windows environment warnings:");
+            for warning in warnings {
+                eprintln!("  • {}", warning);
+            }
+            eprintln!();
+        }
+    }
+
     let accounts = match config.list_accounts() {
         Ok(v) => v,
         Err(_) => return 1,
