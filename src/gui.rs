@@ -508,7 +508,27 @@ fn project_path(raw: &str, must_exist: bool) -> Result<PathBuf, GuiError> {
     path.canonicalize()
         .ok()
         .filter(|p| p.is_dir())
+        .map(without_verbatim_prefix)
         .ok_or(GuiError::DirectoryMissing)
+}
+
+/// `canonicalize` on Windows answers in the verbatim form (`\\?\F:\work`,
+/// `\\?\UNC\server\share`), which `current_dir()` never returns: a binding
+/// written that way matched no directory, so the account never followed it.
+/// Back to the ordinary form wherever there is one.
+fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let Some(s) = path.to_str() else {
+        return path;
+    };
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match s.strip_prefix(r"\\?\") {
+        // A drive letter: `\\?\F:\work` is `F:\work`. Anything else, such
+        // as a volume GUID, has no ordinary form and is kept as it is.
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path,
+    }
 }
 
 fn window(w: &identity::UsageWindow) -> UsageWindow {
@@ -1680,9 +1700,9 @@ mod tests {
     use super::*;
 
     fn fixture(tag: &str) -> (AppConfig, PathBuf) {
-        let root = std::env::temp_dir()
-            .canonicalize()
-            .unwrap()
+        // In the form the code under test returns: canonical, and on
+        // Windows without the `\\?\` prefix.
+        let root = without_verbatim_prefix(std::env::temp_dir().canonicalize().unwrap())
             .join(format!("cc-gui-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let config = AppConfig {
@@ -3538,6 +3558,52 @@ mod tests {
                 .directory,
             real.to_str().unwrap()
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn verbatim_windows_paths_are_given_their_ordinary_form() {
+        let plain = |s: &str| without_verbatim_prefix(PathBuf::from(s));
+        assert_eq!(plain(r"\\?\F:\work\app"), PathBuf::from(r"F:\work\app"));
+        assert_eq!(
+            plain(r"\\?\UNC\server\share\app"),
+            PathBuf::from(r"\\server\share\app")
+        );
+        // No ordinary form: kept.
+        let guid = r"\\?\Volume{0a1b2c3d-0000-0000-0000-000000000000}\app";
+        assert_eq!(plain(guid), PathBuf::from(guid));
+        // Already ordinary: untouched.
+        for s in [r"F:\work\app", "/Users/m/work/app", r"\\server\share"] {
+            assert_eq!(plain(s), PathBuf::from(s));
+        }
+    }
+
+    #[test]
+    fn a_binding_is_saved_the_way_the_wrapper_reads_the_directory() {
+        // Regression: on Windows the window saved `\\?\F:\work\app`, which
+        // never equals the `F:\work\app` the claude wrapper looks up, so the
+        // account did not follow the folder and Claude asked to sign in.
+        let (c, root) = fixture("verbatim");
+        let project = root.join("app");
+        fs::create_dir_all(&project).unwrap();
+        let standard = root.join("standard");
+        change_binding(&c, &standard, project.to_str().unwrap(), Some("work")).unwrap();
+        let saved = c.all_links().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert!(!saved[0].0.starts_with(r"\\?\"), "{}", saved[0].0);
+        // What `current_dir()` reports from inside the folder, without
+        // changing this process's own directory.
+        let cwd = std::process::Command::new(if cfg!(windows) { "cmd" } else { "sh" })
+            .args(if cfg!(windows) {
+                ["/C", "cd"]
+            } else {
+                ["-c", "pwd -P"]
+            })
+            .current_dir(&project)
+            .output()
+            .unwrap();
+        let cwd = String::from_utf8(cwd.stdout).unwrap().trim().to_string();
+        assert_eq!(saved[0].0, cwd);
         fs::remove_dir_all(root).unwrap();
     }
 }
