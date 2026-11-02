@@ -94,6 +94,7 @@ claude-acc link work
 | `claude-acc whoami` | Email (или имя) активного аккаунта |
 | `claude-acc lock <имя>` | Закрепить аккаунт за личностью, под которой он вошёл (`--force` — перезакрепить) |
 | `claude-acc doctor [--json]` | Аудит реальной OAuth-личности каждого аккаунта и расхождений с закреплением |
+| `claude-acc backup create\|inspect\|restore\|rollback` | Зашифрованная копия аккаунтов и файлов агента из проектов и восстановление на другой машине (`--dry-run`, `--map FROM=TO`) |
 | `claude-acc install` | Установить бинарник и shell-интеграцию |
 | `claude-acc update [--check]` | Обновить бинарник до последнего релиза с GitHub |
 
@@ -164,6 +165,7 @@ README — это обзор. У каждой темы своя страница
 | Проверить, под каким аккаунтом реально config-папка, и сколько лимита осталось | [Личности: `doctor`, `lock`, `usage`](docs/ru/identity.md) |
 | Держать несколько аккаунтов Claude Desktop открытыми одновременно | [Профили Claude Desktop](docs/ru/desktop.md) |
 | Показать активный аккаунт в статус-панели Claude Code | [Статус-панель](docs/ru/statusline.md) |
+| Перенести аккаунты, сессии и файлы агента из проектов на другую машину, в том числе с Mac на Windows | [Резервная копия и перенос](docs/ru/backup.md) |
 | Сравнить с cswap, aisw и рецептом на direnv | [Сравнение с другими инструментами](docs/ru/comparison.md) |
 
 ## Язык

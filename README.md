@@ -94,6 +94,7 @@ claude-acc link work
 | `claude-acc whoami` | Print the email (or name) of the active account |
 | `claude-acc lock <name>` | Pin an account to the identity it is signed in as (`--force` to re-pin) |
 | `claude-acc doctor [--json]` | Audit each account's actual OAuth identity, and report drift from the pin |
+| `claude-acc backup create\|inspect\|restore\|rollback` | Encrypted backup of accounts and project agent files, and restore on another machine (`--dry-run`, `--map FROM=TO`) |
 | `claude-acc install` | Install binary and shell integration |
 | `claude-acc update [--check]` | Update the binary to the latest GitHub release |
 
@@ -164,6 +165,7 @@ The README is the overview. Each topic has its own page:
 | Check which Anthropic account a config dir is really signed in as, and how much limit is left | [Identities: `doctor`, `lock`, `usage`](docs/identity.md) |
 | Run several Claude Desktop accounts side by side | [Claude Desktop profiles](docs/desktop.md) |
 | Show the active account in Claude Code's status bar | [Status line](docs/statusline.md) |
+| Move accounts, sessions and project agent files to another machine, Mac to Windows included | [Backup and restore](docs/backup.md) |
 | See how this compares to cswap, aisw and the direnv recipe | [Comparison with other tools](docs/comparison.md) |
 
 ## Language
