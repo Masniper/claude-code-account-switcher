@@ -311,34 +311,26 @@ impl I18n {
                 )
             }
 
-            // Windows-specific errors
+            // Windows: things that break the tool before any account is read.
             (Msg::WindowsExecutionPolicyBlocked, Lang::En) => s(
-                "PowerShell ExecutionPolicy is Restricted, which blocks profile scripts.\n\
-                 Run: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+                "PowerShell's execution policy here does not run profile scripts, so the \
+                 shell integration `install` adds will not load. To allow it: \
+                 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned",
             ),
             (Msg::WindowsExecutionPolicyBlocked, Lang::Ru) => s(
-                "PowerShell ExecutionPolicy установлен в Restricted, что блокирует скрипты профиля.\n\
-                 Выполните: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned"
+                "Политика выполнения PowerShell здесь не запускает скрипты профиля, \
+                 поэтому интеграция, которую добавляет `install`, не загрузится. Чтобы \
+                 разрешить: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned",
             ),
-            (Msg::WindowsRecycleBinFailed(ref e), Lang::En) => {
-                format!("Failed to move to Recycle Bin: {}. Deleting directly instead.", e)
-            },
-            (Msg::WindowsRecycleBinFailed(ref e), Lang::Ru) => {
-                format!("Не удалось переместить в Корзину: {}. Удаляю напрямую.", e)
-            },
-            (Msg::WindowsStoreNotSupported, Lang::En) => s(
-                "Claude Code installed from Microsoft Store cannot be managed with separate profiles.\n\
-                 Install from claude.com/download instead. See issue #75."
+            (Msg::WindowsClaudeIsStoreAlias, Lang::En) => s(
+                "`claude` on PATH is a Microsoft Store app alias (under WindowsApps), not a \
+                 Claude Code install. claude-acc runs whatever `claude` resolves to; put \
+                 Claude Code's own install earlier on PATH.",
             ),
-            (Msg::WindowsStoreNotSupported, Lang::Ru) => s(
-                "Claude Code из Microsoft Store не поддерживает отдельные профили.\n\
-                 Установите с claude.com/download. См. issue #75."
-            ),
-            (Msg::WindowsPathNotUpdated, Lang::En) => s(
-                "PATH was updated for current session only. Restart PowerShell to persist."
-            ),
-            (Msg::WindowsPathNotUpdated, Lang::Ru) => s(
-                "PATH обновлён только для текущей сессии. Перезапустите PowerShell для сохранения."
+            (Msg::WindowsClaudeIsStoreAlias, Lang::Ru) => s(
+                "`claude` в PATH — это псевдоним приложения Microsoft Store (в WindowsApps), \
+                 а не установка Claude Code. claude-acc запускает то, на что указывает \
+                 `claude`; поставьте собственную установку Claude Code раньше в PATH.",
             ),
 
             // import
@@ -1399,9 +1391,7 @@ pub enum Msg {
     DoctorSharedIdentity(String),
     DuplicateAccountWarning(String, String),
     WindowsExecutionPolicyBlocked,
-    WindowsRecycleBinFailed(String),
-    WindowsStoreNotSupported,
-    WindowsPathNotUpdated,
+    WindowsClaudeIsStoreAlias,
     RelativeTime(u64),
     SeedCopied(String),
     SeedNothingToCopy,

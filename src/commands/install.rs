@@ -6,21 +6,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(windows)]
-use crate::windows_helpers;
-
 pub(crate) use crate::config::binary_name;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
-    // Windows-specific: check ExecutionPolicy before proceeding
+    // Windows: the binary installs either way, but the profile script this
+    // adds will not run under a restrictive policy. Say so; do not block.
     #[cfg(windows)]
-    {
-        use crate::windows_helpers::check_execution_policy;
-        if !check_execution_policy() {
-            eprintln!("{}", i18n.msg(Msg::WindowsExecutionPolicyBlocked));
-            eprintln!("\nAfter fixing ExecutionPolicy, run 'claude-acc install' again.");
-            std::process::exit(1);
-        }
+    if crate::windows_helpers::execution_policy_allows_profile() == Some(false) {
+        eprintln!("{}", i18n.msg(Msg::WindowsExecutionPolicyBlocked));
     }
 
     let bin_dir = config.base_dir.join("bin");
