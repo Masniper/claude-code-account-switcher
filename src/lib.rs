@@ -7,6 +7,9 @@
 pub mod gui;
 
 #[doc(hidden)]
+pub mod backup;
+
+#[doc(hidden)]
 pub mod config;
 #[doc(hidden)]
 pub mod environment;
