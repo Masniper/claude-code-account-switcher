@@ -216,7 +216,7 @@ impl AppConfig {
     pub fn get_link(&self, dir: &str) -> io::Result<Option<String>> {
         let links = self.all_links()?;
         for (d, acc) in &links {
-            if d == dir {
+            if same_dir(d, dir, cfg!(windows)) {
                 return Ok(Some(acc.clone()));
             }
         }
@@ -226,7 +226,7 @@ impl AppConfig {
     pub fn set_link(&self, dir: &str, account: &str) -> io::Result<()> {
         self.locked(|| {
             let mut links = self.all_links()?;
-            links.retain(|(d, _)| d != dir);
+            links.retain(|(d, _)| !same_dir(d, dir, cfg!(windows)));
             links.push((dir.to_string(), account.to_string()));
             self.write_links(&links)
         })
@@ -236,7 +236,7 @@ impl AppConfig {
         self.locked(|| {
             let mut links = self.all_links()?;
             let before = links.len();
-            links.retain(|(d, _)| d != dir);
+            links.retain(|(d, _)| !same_dir(d, dir, cfg!(windows)));
             if links.len() == before {
                 return Ok(false);
             }
@@ -265,6 +265,19 @@ impl AppConfig {
             content + "\n"
         };
         replace_file(&self.links_path(), &content)
+    }
+}
+
+/// Whether a stored link and a looked-up directory name the same place.
+/// Windows paths ignore case, and the same folder reaches us spelled more
+/// than one way: VS Code starts the extension's process in `f:\work\x`, a
+/// terminal is in `F:\work\x`. Comparing them exactly sent every VS Code
+/// window of a linked folder to the default account.
+fn same_dir(stored: &str, dir: &str, ignore_case: bool) -> bool {
+    if ignore_case {
+        stored.to_lowercase() == dir.to_lowercase()
+    } else {
+        stored == dir
     }
 }
 
@@ -422,6 +435,38 @@ mod tests {
             }
         });
         assert_eq!(c.all_links().unwrap().len(), 200);
+        let _ = fs::remove_dir_all(&c.base_dir);
+    }
+
+    #[test]
+    fn directories_match_regardless_of_case_only_where_paths_ignore_it() {
+        assert!(same_dir(r"F:\work\x", r"f:\work\x", true));
+        assert!(same_dir(
+            r"C:\Users\Ali\Проект",
+            r"c:\users\ali\проект",
+            true
+        ));
+        assert!(!same_dir(r"F:\work\x", r"F:\work\y", true));
+        assert!(!same_dir(r"F:\work\x", r"F:\work\x2", true));
+        assert!(same_dir("/p/X", "/p/X", false));
+        assert!(!same_dir("/p/X", "/p/x", false));
+    }
+
+    // Regression: VS Code runs the extension's process in `f:\work\x` while
+    // the link was saved from a terminal as `F:\work\x`, so every VS Code
+    // window of a linked folder fell back to the default account.
+    #[test]
+    fn a_link_is_found_and_replaced_under_another_spelling_of_its_case() {
+        let c = temp_config("case");
+        c.set_link(r"F:\work\x", "work").unwrap();
+        let found = c.get_link(r"f:\work\x").unwrap();
+        assert_eq!(found.as_deref(), cfg!(windows).then_some("work"));
+
+        c.set_link(r"f:\work\x", "home").unwrap();
+        let expected = if cfg!(windows) { 1 } else { 2 };
+        assert_eq!(c.all_links().unwrap().len(), expected);
+
+        assert!(c.remove_link(r"F:\WORK\X").unwrap() == cfg!(windows));
         let _ = fs::remove_dir_all(&c.base_dir);
     }
 
