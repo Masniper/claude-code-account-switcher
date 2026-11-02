@@ -2185,6 +2185,221 @@ fn rollback_run(run: &Path) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// From a person's choices: shared by the CLI and the manager window
+
+/// Which accounts go in whole. Nothing named means every account, unless
+/// projects were chosen: then none whole, only those projects' sessions
+/// from each.
+fn whole_accounts(
+    all: &[Source],
+    named: &[String],
+    all_flag: bool,
+    any_project: bool,
+) -> Result<Vec<Source>> {
+    if all_flag || (named.is_empty() && !any_project) {
+        return Ok(all.to_vec());
+    }
+    named
+        .iter()
+        .map(|n| {
+            all.iter()
+                .find(|s| &s.label == n)
+                .cloned()
+                .ok_or_else(|| Error::UnknownAccount(n.clone()))
+        })
+        .collect()
+}
+
+/// The bindings a backup carries: those of the accounts taken whole, and
+/// those of folders inside a project taken, whichever account they name.
+fn kept_links(
+    links: Vec<(String, String)>,
+    whole: &[String],
+    projects: &[PathBuf],
+) -> Vec<(String, String)> {
+    links
+        .into_iter()
+        .filter(|(dir, acc)| {
+            whole.contains(acc) || projects.iter().any(|p| Path::new(dir).starts_with(p))
+        })
+        .collect()
+}
+
+/// What to back up, from account labels (or all of them) and project roots.
+pub fn scope(
+    config: &AppConfig,
+    standard_dir: &Path,
+    standard_json: &Path,
+    home: PathBuf,
+    accounts: &[String],
+    all_accounts: bool,
+    projects: &[PathBuf],
+) -> Result<Scope> {
+    let all = discover(config, standard_dir, standard_json);
+    let whole = whole_accounts(&all, accounts, all_accounts, !projects.is_empty())?;
+    let projects: Vec<PathBuf> = projects
+        .iter()
+        .map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone()))
+        .collect();
+    if whole.is_empty() && projects.is_empty() {
+        return Err(Error::NothingSelected);
+    }
+    let labels: Vec<String> = whole.iter().map(|s| s.label.clone()).collect();
+    let links = kept_links(config.all_links().unwrap_or_default(), &labels, &projects);
+    let default = config
+        .get_default()
+        .ok()
+        .flatten()
+        .filter(|d| labels.contains(d));
+    let lock = labels
+        .iter()
+        .any(|l| l == sessions::DEFAULT_LABEL)
+        .then(|| crate::identity::default_lock_path(&config.base_dir));
+    Ok(Scope {
+        home,
+        session_accounts: if projects.is_empty() { Vec::new() } else { all },
+        accounts: whole,
+        projects,
+        switch: Some((SwitchState { default, links }, lock)),
+    })
+}
+
+/// A restore as a person describes it. Accounts and projects are written
+/// `SRC` or `SRC=DST`, as on the command line.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestoreChoice {
+    pub maps: Vec<String>,
+    pub accounts: Vec<String>,
+    pub all_accounts: bool,
+    pub projects: Vec<String>,
+    pub reuse: bool,
+    pub select: Vec<String>,
+    pub replace: bool,
+}
+
+/// `SRC=DST`, or `SRC` alone.
+fn pair(s: &str) -> (String, Option<String>) {
+    match s.split_once('=') {
+        Some((a, b)) if !b.is_empty() => (a.to_string(), Some(b.to_string())),
+        Some((a, _)) => (a.to_string(), None),
+        None => (s.to_string(), None),
+    }
+}
+
+/// The restore a choice asks for, and the backed-up projects left out for
+/// want of a destination. The modes:
+///
+/// - no accounts or projects named: every account whole, under its own
+///   name, and every project a map covers;
+/// - accounts only: those accounts whole, no project files;
+/// - projects only: those projects, with their sessions and memory from
+///   each account, into the target account of the same name;
+/// - both, or all accounts with projects: the two together;
+/// - reuse: only the definitions of the projects given, nothing else.
+pub fn restore_request(
+    m: &Manifest,
+    c: &RestoreChoice,
+    windows: bool,
+) -> Result<(RestoreRequest, Vec<String>)> {
+    let map = PathMap::parse(&c.maps).map_err(Error::BadMap)?;
+    let mut accounts = Vec::new();
+    for raw in &c.accounts {
+        let (src, dst) = pair(raw);
+        let dst = dst.unwrap_or_else(|| src.clone());
+        if dst != sessions::DEFAULT_LABEL && !crate::config::validate_name(&dst) {
+            return Err(Error::UnknownAccount(dst));
+        }
+        accounts.push((src, dst));
+    }
+    let no_selection = c.accounts.is_empty() && c.projects.is_empty();
+    let whole = c.all_accounts || !c.accounts.is_empty() || no_selection;
+    if accounts.is_empty() && !c.reuse {
+        accounts = m
+            .accounts
+            .iter()
+            .map(|e| (e.label.clone(), e.label.clone()))
+            .collect();
+    }
+    let mut projects = Vec::new();
+    let mut left_out = Vec::new();
+    for raw in &c.projects {
+        let (src, dst) = pair(raw);
+        let src = m
+            .projects
+            .iter()
+            .find(|p| p.source_root == src || Path::new(&p.source_root) == Path::new(&src))
+            .map(|p| p.source_root.clone())
+            .ok_or_else(|| Error::UnmappedProject(src.clone()))?;
+        let dst = dst
+            .or_else(|| map.map(&src))
+            .ok_or_else(|| Error::UnmappedProject(src.clone()))?;
+        projects.push((src, PathBuf::from(dst)));
+    }
+    if c.projects.is_empty() && (no_selection || c.all_accounts) {
+        for p in &m.projects {
+            match map.map(&p.source_root) {
+                Some(dst) => projects.push((p.source_root.clone(), PathBuf::from(dst))),
+                None => left_out.push(p.source_root.clone()),
+            }
+        }
+    }
+    if c.reuse && projects.is_empty() {
+        return Err(Error::NothingSelected);
+    }
+    Ok((
+        RestoreRequest {
+            map,
+            accounts: if c.reuse { Vec::new() } else { accounts },
+            projects,
+            whole_accounts: whole && !c.reuse,
+            reuse: c.reuse,
+            select: c.select.clone(),
+            replace: c.replace,
+            windows_target: windows,
+        },
+        left_out,
+    ))
+}
+
+/// Where an archive is decrypted to: inside the switch's own folder and
+/// private to the user, and removed again when this is dropped.
+#[derive(Debug)]
+pub struct Staging(PathBuf);
+
+impl Staging {
+    pub fn new(base_dir: &Path) -> io::Result<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = base_dir.join(format!("restore-staging-{}-{nanos}", std::process::id()));
+        fs::create_dir_all(base_dir)?;
+        // On Windows the user's profile folder is already private to them.
+        #[cfg(not(unix))]
+        let builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        let builder = {
+            use std::os::unix::fs::DirBuilderExt;
+            let mut b = fs::DirBuilder::new();
+            b.mode(0o700);
+            b
+        };
+        builder.create(&dir)?;
+        Ok(Self(dir))
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Staging {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3343,5 +3558,171 @@ mod tests {
         );
         assert!(PathMap::parse(&["nothing".into()]).is_err());
         assert!(PathMap::parse(&["=x".into()]).is_err());
+    }
+
+    // -- choices --
+
+    fn choice_manifest() -> Manifest {
+        let mut m = manifest_of(&[]);
+        m.accounts = ["default", "work"]
+            .iter()
+            .map(|l| AccountEntry {
+                label: l.to_string(),
+                source_dir: String::new(),
+                projects_only: false,
+            })
+            .collect();
+        m.projects = vec![
+            ProjectEntry {
+                id: "p0".into(),
+                source_root: "/Users/m/work/app".into(),
+            },
+            ProjectEntry {
+                id: "p1".into(),
+                source_root: "/opt/other".into(),
+            },
+        ];
+        m
+    }
+
+    fn choice(maps: &[&str], accounts: &[&str], projects: &[&str]) -> RestoreChoice {
+        let v = |x: &[&str]| x.iter().map(|s| s.to_string()).collect();
+        RestoreChoice {
+            maps: v(maps),
+            accounts: v(accounts),
+            projects: v(projects),
+            ..RestoreChoice::default()
+        }
+    }
+
+    #[test]
+    fn no_selection_restores_every_account_whole_and_every_mapped_project() {
+        let c = choice(&["/Users/m/work=F:\\work"], &[], &[]);
+        let (req, left) = restore_request(&choice_manifest(), &c, true).unwrap();
+        assert!(req.whole_accounts);
+        assert_eq!(
+            req.accounts,
+            vec![
+                ("default".into(), "default".into()),
+                ("work".into(), "work".into())
+            ]
+        );
+        assert_eq!(
+            req.projects,
+            vec![("/Users/m/work/app".into(), PathBuf::from("F:\\work\\app"))]
+        );
+        assert_eq!(left, vec!["/opt/other".to_string()]);
+        assert!(req.windows_target);
+    }
+
+    #[test]
+    fn accounts_only_takes_no_project_files() {
+        let c = choice(&["/Users/m/work=F:\\work"], &["work=work-mac"], &[]);
+        let (req, left) = restore_request(&choice_manifest(), &c, false).unwrap();
+        assert!(req.whole_accounts);
+        assert_eq!(req.accounts, vec![("work".into(), "work-mac".into())]);
+        assert!(req.projects.is_empty() && left.is_empty());
+    }
+
+    #[test]
+    fn project_only_moves_its_sessions_from_every_account_into_a_chosen_folder() {
+        let c = choice(&[], &[], &["/Users/m/work/app=D:\\new\\app"]);
+        let (req, _) = restore_request(&choice_manifest(), &c, true).unwrap();
+        assert!(!req.whole_accounts);
+        assert_eq!(req.accounts.len(), 2);
+        assert_eq!(
+            req.projects,
+            vec![("/Users/m/work/app".into(), PathBuf::from("D:\\new\\app"))]
+        );
+    }
+
+    #[test]
+    fn a_project_needs_a_destination() {
+        for projects in [&["/Users/m/work/app"][..], &["/nowhere=/x"]] {
+            let c = choice(&[], &[], projects);
+            assert!(matches!(
+                restore_request(&choice_manifest(), &c, true),
+                Err(Error::UnmappedProject(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn reuse_takes_no_accounts_and_needs_a_project() {
+        let mut c = choice(&[], &[], &["/Users/m/work/app=/home/m/other"]);
+        c.reuse = true;
+        let (req, _) = restore_request(&choice_manifest(), &c, false).unwrap();
+        assert!(req.reuse && req.accounts.is_empty() && !req.whole_accounts);
+        let mut c = choice(&[], &[], &[]);
+        c.reuse = true;
+        assert!(matches!(
+            restore_request(&choice_manifest(), &c, false),
+            Err(Error::NothingSelected)
+        ));
+    }
+
+    #[test]
+    fn a_target_account_name_must_be_valid() {
+        let c = choice(&[], &["work=../escape"], &[]);
+        assert!(matches!(
+            restore_request(&choice_manifest(), &c, false),
+            Err(Error::UnknownAccount(_))
+        ));
+    }
+
+    #[test]
+    fn a_project_backup_carries_the_bindings_inside_it() {
+        let links = vec![
+            ("/w/app".to_string(), "ctpo".to_string()),
+            ("/w/app/sub".to_string(), "max".to_string()),
+            ("/w/application".to_string(), "ctpo".to_string()),
+            ("/elsewhere".to_string(), "home".to_string()),
+        ];
+        let kept = kept_links(links.clone(), &[], &[PathBuf::from("/w/app")]);
+        assert_eq!(kept, links[..2].to_vec());
+        let kept = kept_links(links.clone(), &["home".to_string()], &[]);
+        assert_eq!(kept, vec![links[3].clone()]);
+    }
+
+    #[test]
+    fn whole_accounts_follow_the_selection() {
+        let all: Vec<Source> = ["default", "work"]
+            .iter()
+            .map(|l| Source {
+                label: l.to_string(),
+                config_dir: PathBuf::new(),
+                home_json: None,
+            })
+            .collect();
+        let labels = |v: Vec<Source>| v.into_iter().map(|s| s.label).collect::<Vec<_>>();
+        assert_eq!(
+            labels(whole_accounts(&all, &[], false, false).unwrap()),
+            vec!["default", "work"]
+        );
+        assert!(whole_accounts(&all, &[], false, true).unwrap().is_empty());
+        assert_eq!(
+            labels(whole_accounts(&all, &[], true, true).unwrap()),
+            vec!["default", "work"]
+        );
+        assert_eq!(
+            labels(whole_accounts(&all, &["work".into()], false, true).unwrap()),
+            vec!["work"]
+        );
+        assert!(matches!(
+            whole_accounts(&all, &["nope".into()], false, false),
+            Err(Error::UnknownAccount(n)) if n == "nope"
+        ));
+    }
+
+    #[test]
+    fn a_staging_folder_is_removed_when_dropped() {
+        let root = scratch("staging");
+        let staging = Staging::new(&root).unwrap();
+        let dir = staging.path().to_path_buf();
+        assert!(dir.is_dir() && dir.starts_with(&root));
+        fs::write(dir.join("x"), "y").unwrap();
+        drop(staging);
+        assert!(!dir.exists());
+        fs::remove_dir_all(&root).unwrap();
     }
 }

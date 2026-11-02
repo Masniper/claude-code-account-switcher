@@ -2,14 +2,13 @@
 //! side of [`claude_acc::backup`]. Everything printed here is a path, a
 //! count, an account name or a field name: never a file's contents.
 
-use crate::config::{AppConfig, validate_name};
+use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::identity;
 use crate::sessions;
 use age::secrecy::SecretString;
 use claude_acc::backup::{
-    self, Action, Error, Manifest, Note, PathMap, Reason, RestoreRequest, Scope, Source,
-    SwitchState, Target, Why,
+    self, Action, Error, Manifest, Note, Reason, RestoreChoice, Staging, Target, Why,
 };
 use std::fs;
 use std::io::{self, IsTerminal};
@@ -30,29 +29,6 @@ fn target(config: &AppConfig) -> Option<Target> {
 // ---------------------------------------------------------------------------
 // create
 
-/// Which accounts go in whole, given the flags. No flags at all means every
-/// account; `--project` alone means none whole, only those projects'
-/// sessions from each.
-fn whole_accounts(
-    all: &[Source],
-    named: &[String],
-    all_flag: bool,
-    any_project: bool,
-) -> Result<Vec<Source>, String> {
-    if all_flag || (named.is_empty() && !any_project) {
-        return Ok(all.to_vec());
-    }
-    named
-        .iter()
-        .map(|n| {
-            all.iter()
-                .find(|s| &s.label == n)
-                .cloned()
-                .ok_or_else(|| n.clone())
-        })
-        .collect()
-}
-
 pub fn create(
     config: &AppConfig,
     i18n: &I18n,
@@ -68,47 +44,23 @@ pub fn create(
     let Some(home) = dirs::home_dir() else {
         return fail(i18n, Error::NothingSelected);
     };
-    let all = backup::discover(config, &t.standard_dir, &t.standard_json);
-    let whole = match whole_accounts(&all, accounts, all_accounts, !projects.is_empty()) {
-        Ok(w) => w,
-        Err(name) => return fail(i18n, Error::UnknownAccount(name)),
+    let scope = match backup::scope(
+        config,
+        &t.standard_dir,
+        &t.standard_json,
+        home,
+        accounts,
+        all_accounts,
+        projects,
+    ) {
+        Ok(s) => s,
+        Err(e) => return fail(i18n, e),
     };
-    let projects: Vec<PathBuf> = projects
-        .iter()
-        .map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone()))
-        .collect();
-    if whole.is_empty() && projects.is_empty() {
-        return fail(i18n, Error::NothingSelected);
-    }
     if !dry_run && fs::symlink_metadata(file).is_ok() {
         i18n.print(Msg::BackupFileExists(file.display().to_string()));
         return 1;
     }
-    let labels: Vec<String> = whole.iter().map(|s| s.label.clone()).collect();
-    let switch = (!whole.is_empty() || !projects.is_empty()).then(|| {
-        let links = kept_links(config.all_links().unwrap_or_default(), &labels, &projects);
-        let default = config
-            .get_default()
-            .ok()
-            .flatten()
-            .filter(|d| labels.contains(d));
-        let lock = labels
-            .iter()
-            .any(|l| l == sessions::DEFAULT_LABEL)
-            .then(|| identity::default_lock_path(&config.base_dir));
-        (SwitchState { default, links }, lock)
-    });
-    let scope = Scope {
-        home,
-        session_accounts: if projects.is_empty() {
-            Vec::new()
-        } else {
-            all.clone()
-        },
-        accounts: whole,
-        projects,
-        switch,
-    };
+    let labels: Vec<&str> = scope.accounts.iter().map(|s| s.label.as_str()).collect();
     let survey = match backup::survey(&scope) {
         Ok(s) => s,
         Err(e) => return fail(i18n, e),
@@ -148,21 +100,6 @@ pub fn create(
         }
         Err(e) => fail(i18n, e),
     }
-}
-
-/// The bindings a backup carries: those of the accounts taken whole, and
-/// those of folders inside a project taken, whichever account they name.
-fn kept_links(
-    links: Vec<(String, String)>,
-    whole: &[String],
-    projects: &[PathBuf],
-) -> Vec<(String, String)> {
-    links
-        .into_iter()
-        .filter(|(dir, acc)| {
-            whole.contains(acc) || projects.iter().any(|p| Path::new(dir).starts_with(p))
-        })
-        .collect()
 }
 
 fn join_or_dash(items: &[impl AsRef<str>]) -> String {
@@ -232,41 +169,10 @@ fn read_passphrase(i18n: &I18n, confirm: bool) -> Option<SecretString> {
     Some(SecretString::from(first))
 }
 
-/// Where an archive is decrypted to, inside our own state folder and
-/// private to the user; removed again however the command ends.
-struct Staging(PathBuf);
-
-impl Staging {
-    fn new(config: &AppConfig) -> io::Result<Self> {
-        let dir = config
-            .base_dir
-            .join(format!("restore-staging-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        // On Windows the user's profile folder is already private to them.
-        #[cfg(not(unix))]
-        let builder = fs::DirBuilder::new();
-        #[cfg(unix)]
-        let builder = {
-            use std::os::unix::fs::DirBuilderExt;
-            let mut b = fs::DirBuilder::new();
-            b.mode(0o700);
-            b
-        };
-        builder.create(&dir)?;
-        Ok(Self(dir))
-    }
-}
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 fn open(config: &AppConfig, i18n: &I18n, file: &Path) -> Result<(Staging, Manifest), i32> {
-    let staging = Staging::new(config).map_err(|e| fail(i18n, Error::Io(e)))?;
+    let staging = Staging::new(&config.base_dir).map_err(|e| fail(i18n, Error::Io(e)))?;
     let passphrase = read_passphrase(i18n, false).ok_or(1)?;
-    let manifest = backup::open(file, passphrase, &staging.0).map_err(|e| fail(i18n, e))?;
+    let manifest = backup::open(file, passphrase, staging.path()).map_err(|e| fail(i18n, e))?;
     Ok((staging, manifest))
 }
 
@@ -345,88 +251,16 @@ pub struct RestoreArgs<'a> {
     pub dry_run: bool,
 }
 
-/// `SRC=DST`, or `SRC` alone.
-fn pair(s: &str) -> (String, Option<String>) {
-    match s.split_once('=') {
-        Some((a, b)) if !b.is_empty() => (a.to_string(), Some(b.to_string())),
-        Some((a, _)) => (a.to_string(), None),
-        None => (s.to_string(), None),
+fn choice(a: &RestoreArgs) -> RestoreChoice {
+    RestoreChoice {
+        maps: a.maps.to_vec(),
+        accounts: a.accounts.to_vec(),
+        all_accounts: a.all_accounts,
+        projects: a.projects.to_vec(),
+        reuse: a.reuse,
+        select: a.select.to_vec(),
+        replace: a.replace,
     }
-}
-
-/// The restore the flags ask for, and the backed-up projects left out for
-/// want of a destination. The modes:
-///
-/// - no `--account`/`--project`: every account whole, under its own name,
-///   and every project `--map` covers;
-/// - `--account` only: those accounts whole, no project files;
-/// - `--project` only: those projects, with their sessions and memory from
-///   each account, into the target account of the same name;
-/// - both, or `--all-accounts` with `--project`: the two together;
-/// - `--reuse`: only the definitions of the projects given, nothing else.
-fn request(
-    m: &Manifest,
-    a: &RestoreArgs,
-    windows: bool,
-) -> Result<(RestoreRequest, Vec<String>), Error> {
-    let map = PathMap::parse(a.maps).map_err(Error::BadMap)?;
-    let mut accounts = Vec::new();
-    for raw in a.accounts {
-        let (src, dst) = pair(raw);
-        let dst = dst.unwrap_or_else(|| src.clone());
-        if dst != sessions::DEFAULT_LABEL && !validate_name(&dst) {
-            return Err(Error::UnknownAccount(dst));
-        }
-        accounts.push((src, dst));
-    }
-    let no_selection = a.accounts.is_empty() && a.projects.is_empty();
-    let whole = a.all_accounts || !a.accounts.is_empty() || no_selection;
-    if accounts.is_empty() && !a.reuse {
-        accounts = m
-            .accounts
-            .iter()
-            .map(|e| (e.label.clone(), e.label.clone()))
-            .collect();
-    }
-    let mut projects = Vec::new();
-    let mut left_out = Vec::new();
-    for raw in a.projects {
-        let (src, dst) = pair(raw);
-        let src = m
-            .projects
-            .iter()
-            .find(|p| p.source_root == src || Path::new(&p.source_root) == Path::new(&src))
-            .map(|p| p.source_root.clone())
-            .ok_or_else(|| Error::UnmappedProject(src.clone()))?;
-        let dst = dst
-            .or_else(|| map.map(&src))
-            .ok_or_else(|| Error::UnmappedProject(src.clone()))?;
-        projects.push((src, PathBuf::from(dst)));
-    }
-    if a.projects.is_empty() && (no_selection || a.all_accounts) {
-        for p in &m.projects {
-            match map.map(&p.source_root) {
-                Some(dst) => projects.push((p.source_root.clone(), PathBuf::from(dst))),
-                None => left_out.push(p.source_root.clone()),
-            }
-        }
-    }
-    if a.reuse && projects.is_empty() {
-        return Err(Error::NothingSelected);
-    }
-    Ok((
-        RestoreRequest {
-            map,
-            accounts: if a.reuse { Vec::new() } else { accounts },
-            projects,
-            whole_accounts: whole && !a.reuse,
-            reuse: a.reuse,
-            select: a.select.to_vec(),
-            replace: a.replace,
-            windows_target: windows,
-        },
-        left_out,
-    ))
 }
 
 pub fn restore(config: &AppConfig, i18n: &I18n, file: &Path, args: &RestoreArgs) -> i32 {
@@ -440,11 +274,11 @@ pub fn restore(config: &AppConfig, i18n: &I18n, file: &Path, args: &RestoreArgs)
         Ok(x) => x,
         Err(code) => return code,
     };
-    let (req, left_out) = match request(&m, args, cfg!(windows)) {
+    let (req, left_out) = match backup::restore_request(&m, &choice(args), cfg!(windows)) {
         Ok(r) => r,
         Err(e) => return fail(i18n, e),
     };
-    let plan = match backup::plan(&m, &staging.0, &req, &t) {
+    let plan = match backup::plan(&m, staging.path(), &req, &t) {
         Ok(p) => p,
         Err(e) => return fail(i18n, e),
     };
@@ -636,182 +470,4 @@ fn fail(i18n: &I18n, e: Error) -> i32 {
     };
     eprintln!("{}", i18n.msg(msg));
     1
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use claude_acc::backup::{AccountEntry, ProjectEntry};
-
-    fn manifest() -> Manifest {
-        let account = |label: &str| AccountEntry {
-            label: label.into(),
-            source_dir: String::new(),
-            projects_only: false,
-        };
-        Manifest {
-            format: backup::FORMAT_VERSION,
-            tool_version: String::new(),
-            created_at: 0,
-            source_platform: "macos".into(),
-            source_home: "/Users/m".into(),
-            accounts: vec![account("default"), account("work")],
-            switch: None,
-            projects: vec![
-                ProjectEntry {
-                    id: "p0".into(),
-                    source_root: "/Users/m/work/app".into(),
-                },
-                ProjectEntry {
-                    id: "p1".into(),
-                    source_root: "/opt/other".into(),
-                },
-            ],
-            project_dirs: vec![],
-            files: vec![],
-            redactions: vec![],
-            excluded: vec![],
-        }
-    }
-
-    fn args<'a>(
-        maps: &'a [String],
-        accounts: &'a [String],
-        projects: &'a [String],
-    ) -> RestoreArgs<'a> {
-        RestoreArgs {
-            maps,
-            accounts,
-            all_accounts: false,
-            projects,
-            reuse: false,
-            select: &[],
-            replace: false,
-            dry_run: true,
-        }
-    }
-
-    #[test]
-    fn no_selection_restores_every_account_whole_and_every_mapped_project() {
-        let maps = ["/Users/m/work=F:\\work".to_string()];
-        let (req, left) = request(&manifest(), &args(&maps, &[], &[]), true).unwrap();
-        assert!(req.whole_accounts);
-        assert_eq!(
-            req.accounts,
-            vec![
-                ("default".into(), "default".into()),
-                ("work".into(), "work".into())
-            ]
-        );
-        assert_eq!(
-            req.projects,
-            vec![("/Users/m/work/app".into(), PathBuf::from("F:\\work\\app"))]
-        );
-        assert_eq!(left, vec!["/opt/other".to_string()]);
-        assert!(req.windows_target);
-    }
-
-    #[test]
-    fn accounts_only_takes_no_project_files() {
-        let maps = ["/Users/m/work=F:\\work".to_string()];
-        let accounts = ["work=work-mac".to_string()];
-        let (req, left) = request(&manifest(), &args(&maps, &accounts, &[]), false).unwrap();
-        assert!(req.whole_accounts);
-        assert_eq!(req.accounts, vec![("work".into(), "work-mac".into())]);
-        assert!(req.projects.is_empty() && left.is_empty());
-    }
-
-    #[test]
-    fn project_only_moves_its_sessions_from_every_account_into_a_chosen_folder() {
-        let projects = ["/Users/m/work/app=D:\\new\\app".to_string()];
-        let (req, _) = request(&manifest(), &args(&[], &[], &projects), true).unwrap();
-        assert!(!req.whole_accounts);
-        assert_eq!(req.accounts.len(), 2);
-        assert_eq!(
-            req.projects,
-            vec![("/Users/m/work/app".into(), PathBuf::from("D:\\new\\app"))]
-        );
-    }
-
-    #[test]
-    fn a_project_needs_a_destination() {
-        let projects = ["/Users/m/work/app".to_string()];
-        assert!(matches!(
-            request(&manifest(), &args(&[], &[], &projects), true),
-            Err(Error::UnmappedProject(_))
-        ));
-        let unknown = ["/nowhere=/x".to_string()];
-        assert!(matches!(
-            request(&manifest(), &args(&[], &[], &unknown), true),
-            Err(Error::UnmappedProject(_))
-        ));
-    }
-
-    #[test]
-    fn reuse_takes_no_accounts_and_needs_a_project() {
-        let projects = ["/Users/m/work/app=/home/m/other".to_string()];
-        let mut a = args(&[], &[], &projects);
-        a.reuse = true;
-        let (req, _) = request(&manifest(), &a, false).unwrap();
-        assert!(req.reuse && req.accounts.is_empty() && !req.whole_accounts);
-        let mut a = args(&[], &[], &[]);
-        a.reuse = true;
-        assert!(matches!(
-            request(&manifest(), &a, false),
-            Err(Error::NothingSelected)
-        ));
-    }
-
-    #[test]
-    fn a_target_account_name_must_be_valid() {
-        let accounts = ["work=../escape".to_string()];
-        assert!(matches!(
-            request(&manifest(), &args(&[], &accounts, &[]), false),
-            Err(Error::UnknownAccount(_))
-        ));
-    }
-
-    #[test]
-    fn a_project_backup_carries_the_bindings_inside_it() {
-        let links = vec![
-            ("/w/app".to_string(), "ctpo".to_string()),
-            ("/w/app/sub".to_string(), "max".to_string()),
-            ("/w/application".to_string(), "ctpo".to_string()),
-            ("/elsewhere".to_string(), "home".to_string()),
-        ];
-        let kept = kept_links(links.clone(), &[], &[PathBuf::from("/w/app")]);
-        assert_eq!(kept, links[..2].to_vec());
-        let kept = kept_links(links.clone(), &["home".to_string()], &[]);
-        assert_eq!(kept, vec![links[3].clone()]);
-    }
-
-    #[test]
-    fn whole_accounts_follow_the_create_flags() {
-        let all: Vec<Source> = ["default", "work"]
-            .iter()
-            .map(|l| Source {
-                label: l.to_string(),
-                config_dir: PathBuf::new(),
-                home_json: None,
-            })
-            .collect();
-        let labels = |v: Vec<Source>| v.into_iter().map(|s| s.label).collect::<Vec<_>>();
-        assert_eq!(
-            labels(whole_accounts(&all, &[], false, false).unwrap()),
-            vec!["default", "work"]
-        );
-        assert!(whole_accounts(&all, &[], false, true).unwrap().is_empty());
-        assert_eq!(
-            labels(whole_accounts(&all, &[], true, true).unwrap()),
-            vec!["default", "work"]
-        );
-        assert_eq!(
-            labels(whole_accounts(&all, &["work".into()], false, true).unwrap()),
-            vec!["work"]
-        );
-        assert_eq!(
-            whole_accounts(&all, &["nope".into()], false, false).unwrap_err(),
-            "nope"
-        );
-    }
 }
