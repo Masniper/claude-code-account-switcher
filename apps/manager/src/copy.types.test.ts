@@ -10,7 +10,14 @@ import { messages } from "./i18n";
 
 // `src/`, with a trailing slash. Sliced from the URL by hand: there is no
 // `@types/node` for `node:path`, and jsdom's `URL` resolves "." to "/src".
-const src = decodeURIComponent(import.meta.url.replace(/^file:\/\//, "").replace(/[^/]*$/, ""));
+// On Windows the URL is `file:///F:/...`: the slash before the drive letter
+// goes too, or the path names nothing.
+const src = decodeURIComponent(
+  import.meta.url
+    .replace(/^file:\/\//, "")
+    .replace(/^\/([A-Za-z]:)/, "$1")
+    .replace(/[^/]*$/, ""),
+);
 
 const prelude = `
 import { messages, type Messages } from "./i18n";
