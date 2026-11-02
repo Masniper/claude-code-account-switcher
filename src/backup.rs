@@ -2423,12 +2423,17 @@ mod tests {
             fs::read_to_string(d.join(format!("projects/{new_slug}/memory/MEMORY.md"))).unwrap(),
             "- remembered\n"
         );
-        // The transcript is carried byte for byte: its old `cwd` included.
-        assert!(
-            fs::read_to_string(d.join(format!("projects/{new_slug}/s1.jsonl")))
-                .unwrap()
-                .contains(&s(&app))
+        // The transcript is carried byte for byte, its old `cwd` included.
+        // Compared as bytes, not by searching for the path: in JSON a
+        // Windows path's `\` is written `\\`, which a text search misses.
+        let old_slug = sessions::project_dir_name(&s(&app));
+        let restored = fs::read(d.join(format!("projects/{new_slug}/s1.jsonl"))).unwrap();
+        assert_eq!(
+            restored,
+            fs::read(src.std_dir().join(format!("projects/{old_slug}/s1.jsonl"))).unwrap()
         );
+        let first: serde_json::Value = serde_json::from_slice(&restored).unwrap();
+        assert_eq!(first["cwd"], s(&app));
         assert!(d.join("skills/review/SKILL.md").is_file());
         assert!(d.join("agents/helper.md").is_file());
         assert!(d.join("CLAUDE.md").is_file());
