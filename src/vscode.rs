@@ -132,12 +132,34 @@ pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Resul
         return Ok(wrapper);
     }
     if wrapper.exists() {
-        let old = wrapper.with_extension("old");
-        let _ = fs::remove_file(&old);
-        fs::rename(&wrapper, &old)?;
+        set_wrapper_aside(&wrapper)?;
     }
     fs::write(&wrapper, current)?;
     Ok(wrapper)
+}
+
+/// Move the wrapper to a name of its own, after clearing out the copies set
+/// aside before. A copy set aside can itself still be running — a panel
+/// opened before the last update outlives it — so it cannot always be
+/// deleted, and one fixed `.old` name then blocked every later update.
+/// Each copy gets a fresh name instead, and whichever have stopped running
+/// are swept up on the next replacement.
+#[cfg(windows)]
+fn set_wrapper_aside(wrapper: &Path) -> std::io::Result<()> {
+    let (Some(dir), Some(stem)) = (wrapper.parent(), wrapper.file_stem()) else {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    };
+    let prefix = format!("{}.", stem.to_string_lossy());
+    for entry in fs::read_dir(dir)?.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(&prefix) && name.ends_with(".old") {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos());
+    fs::rename(wrapper, dir.join(format!("{prefix}{nanos}.old")))
 }
 
 /// Write `~/.claude-switch/bin/claude-vscode`. Always overwrites, like the
@@ -715,9 +737,10 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// Hold `path` open the way Windows holds a running `.exe`: shared for
-    /// reading and for deletion, which is what lets it be renamed, but never
-    /// for writing.
+    /// Hold `path` open the way Windows holds a running `.exe`: never shared
+    /// for writing. A running image can be renamed but not deleted, and a
+    /// handle cannot say both, so `rename_allowed` picks which half a test
+    /// needs — sharing for deletion permits the rename (and the delete).
     #[cfg(windows)]
     fn hold_like_a_running_image(path: &Path, rename_allowed: bool) -> fs::File {
         use std::os::windows::fs::OpenOptionsExt;
@@ -752,10 +775,57 @@ mod tests {
         assert_eq!(install_wrapper(&dir, &bin).unwrap(), wrapper);
         drop(running);
         assert_eq!(fs::read(&wrapper).unwrap(), b"MZ new");
-        assert_eq!(
-            fs::read(dir.join("bin").join("claude-vscode.old")).unwrap(),
-            b"MZ old"
-        );
+        let aside = set_aside(&dir);
+        assert_eq!(aside.len(), 1, "{aside:?}");
+        assert_eq!(fs::read(&aside[0]).unwrap(), b"MZ old");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The copies `install_wrapper` has moved out of the way, by name.
+    #[cfg(windows)]
+    fn set_aside(dir: &Path) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = fs::read_dir(dir.join("bin"))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "old"))
+            .collect();
+        found.sort();
+        found
+    }
+
+    // Regression: the copy set aside by one update was itself still running
+    // (a panel opened before it), so it could not be deleted to make room,
+    // and every later update failed on the fixed `.old` name.
+    #[cfg(windows)]
+    #[test]
+    fn a_copy_set_aside_earlier_and_still_running_does_not_block_the_next() {
+        let dir = scratch("win-wrapper-twice");
+        let bin = dir.join("claude-acc.exe");
+        let bin_dir = dir.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let wrapper = bin_dir.join("claude-vscode.exe");
+        fs::write(&wrapper, b"MZ v2").unwrap();
+        let still_running = bin_dir.join("claude-vscode.old");
+        fs::write(&still_running, b"MZ v1").unwrap();
+        let stopped = bin_dir.join("claude-vscode.123.old");
+        fs::write(&stopped, b"MZ v0").unwrap();
+        // A running image cannot be deleted; a handle can only refuse
+        // deletion by refusing renames too, which is all this copy needs.
+        let v1 = hold_like_a_running_image(&still_running, false);
+        let v2 = hold_like_a_running_image(&wrapper, true);
+
+        fs::write(&bin, b"MZ v3").unwrap();
+        assert_eq!(install_wrapper(&dir, &bin).unwrap(), wrapper);
+        drop((v1, v2));
+        assert_eq!(fs::read(&wrapper).unwrap(), b"MZ v3");
+        let contents: Vec<Vec<u8>> = set_aside(&dir)
+            .iter()
+            .map(|p| fs::read(p).unwrap())
+            .collect();
+        assert!(!stopped.exists(), "a copy no longer running is swept up");
+        assert_eq!(contents.len(), 2, "{contents:?}");
+        assert!(contents.contains(&b"MZ v1".to_vec()));
+        assert!(contents.contains(&b"MZ v2".to_vec()));
         let _ = fs::remove_dir_all(&dir);
     }
 
