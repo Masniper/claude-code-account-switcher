@@ -155,9 +155,17 @@ pub fn extra_profiles(dir: &str) -> Vec<String> {
     dirs::config_dir().map_or_else(Vec::new, |root| extra_profiles_in(&root, dir))
 }
 
-/// [`extra_profiles`] under a given config root.
+/// [`extra_profiles`] under a given config root. The editor's own list of
+/// profiles is preferred over the directories, which cannot say whether a
+/// profile keeps its own settings; the directories are the fallback when
+/// that list is absent.
 pub fn extra_profiles_in(root: &Path, dir: &str) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(root.join(dir).join("User").join("profiles")) else {
+    let user = root.join(dir).join("User");
+    let storage = fs::read_to_string(user.join("globalStorage").join("storage.json"));
+    if let Some(names) = storage.ok().and_then(|s| profiles_with_own_settings(&s)) {
+        return names;
+    }
+    let Ok(entries) = fs::read_dir(user.join("profiles")) else {
         return Vec::new();
     };
     let mut names: Vec<String> = entries
@@ -167,6 +175,34 @@ pub fn extra_profiles_in(root: &Path, dir: &str) -> Vec<String> {
         .collect();
     names.sort();
     names
+}
+
+/// Names of the profiles in `User/globalStorage/storage.json` that keep a
+/// `settings.json` of their own. One with `useDefaultFlags.settings` reads
+/// the default profile's file, so what we write reaches it too — VS Code
+/// 1.144 ships a built-in "Agents" profile (`profiles/builtin/agents`) set
+/// up exactly that way, which the directories alone reported as missed.
+/// `None` when the file lists no profiles, which leaves the call to the
+/// directories.
+fn profiles_with_own_settings(storage: &str) -> Option<Vec<String>> {
+    let storage: serde_json::Value = serde_json::from_str(storage).ok()?;
+    let profiles = storage.get("userDataProfiles")?.as_array()?;
+    let mut names: Vec<String> = profiles
+        .iter()
+        .filter(|p| {
+            p.pointer("/useDefaultFlags/settings")
+                .and_then(|v| v.as_bool())
+                != Some(true)
+        })
+        .filter_map(|p| {
+            p.get("name")
+                .or_else(|| p.get("location"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    names.sort();
+    Some(names)
 }
 
 /// What `settings.json` currently says about the wrapper setting.
@@ -934,6 +970,60 @@ mod tests {
                 );
             }
         }
+    }
+
+    // Regression: VS Code 1.144's built-in "Agents" profile reads the default
+    // settings, yet its `profiles/builtin` directory made status and the
+    // manager warn that windows on it would ignore the account.
+    #[test]
+    fn a_profile_on_the_default_settings_is_not_reported() {
+        let storage = r#"{"userDataProfiles": [{"location": "builtin/agents", "name": "Agents",
+            "useDefaultFlags": {"settings": true, "keybindings": true, "extensions": true}}]}"#;
+        assert_eq!(profiles_with_own_settings(storage), Some(vec![]));
+    }
+
+    #[test]
+    fn profiles_with_their_own_settings_are_reported_by_name() {
+        let storage = r#"{"userDataProfiles": [
+            {"location": "-6a1f2c", "name": "Work"},
+            {"location": "builtin/agents", "name": "Agents", "useDefaultFlags": {"settings": true}},
+            {"location": "3b9e0d", "name": "Python", "useDefaultFlags": {"settings": false, "extensions": true}},
+            {"location": "77aa01"}
+        ]}"#;
+        assert_eq!(
+            profiles_with_own_settings(storage),
+            Some(vec!["77aa01".into(), "Python".into(), "Work".into()])
+        );
+    }
+
+    #[test]
+    fn storage_without_a_profile_list_says_nothing() {
+        for storage in ["{}", r#"{"userDataProfiles": "x"}"#, "not json", ""] {
+            assert_eq!(profiles_with_own_settings(storage), None, "{storage:?}");
+        }
+    }
+
+    #[test]
+    fn extra_profiles_prefer_the_editor_list_and_fall_back_to_directories() {
+        let root = scratch("profiles");
+        let user = root.join("Code").join("User");
+        fs::create_dir_all(user.join("profiles").join("builtin").join("agents")).unwrap();
+        fs::create_dir_all(user.join("profiles").join("-6a1f2c")).unwrap();
+        // No storage.json yet: the directories are all there is to go on.
+        assert_eq!(
+            extra_profiles_in(&root, "Code"),
+            vec!["-6a1f2c".to_string(), "builtin".to_string()]
+        );
+
+        fs::create_dir_all(user.join("globalStorage")).unwrap();
+        fs::write(
+            user.join("globalStorage").join("storage.json"),
+            r#"{"userDataProfiles": [{"location": "builtin/agents", "name": "Agents",
+                "useDefaultFlags": {"settings": true}}, {"location": "-6a1f2c", "name": "Work"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(extra_profiles_in(&root, "Code"), vec!["Work".to_string()]);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
