@@ -118,9 +118,26 @@ pub fn invoked_as_wrapper(argv0: &std::ffi::OsStr) -> bool {
 /// rely on. Always overwrites, as the Unix wrapper does.
 #[cfg(windows)]
 pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Result<PathBuf> {
+    let bin_dir = base_dir.join("bin");
+    fs::create_dir_all(&bin_dir)?;
+    
+    // Primary: copy claude-acc.exe as claude-vscode.exe
     let wrapper = wrapper_path(base_dir);
-    fs::create_dir_all(base_dir.join("bin"))?;
     fs::copy(claude_acc_bin, &wrapper)?;
+    
+    // Secondary: .cmd shim for manual/fallback invocation  
+    let cmd_wrapper = bin_dir.join("claude-vscode.cmd");
+    let cmd_content = format!(
+        "@echo off\r\n\
+         setlocal\r\n\
+         for /f \"delims=\" %%i in ('\"{}\\.claude-switch\\bin\\claude-acc.exe\" activate --shell powershell') do set ACTIVATION=%%i\r\n\
+         for /f \"tokens=1,2 delims==\" %%a in (\"%%ACTIVATION%%\") do if \"%%a\"==\"$env:CLAUDE_CONFIG_DIR\" set CLAUDE_CONFIG_DIR=%%b\r\n\
+         set CLAUDE_CONFIG_DIR=%CLAUDE_CONFIG_DIR:\"=%\r\n\
+         \"%~1\" %2 %3 %4 %5 %6 %7 %8 %9\r\n",
+        std::env::var("USERPROFILE").unwrap_or_else(|_| "%USERPROFILE%".to_string())
+    );
+    fs::write(&cmd_wrapper, cmd_content)?;
+    
     Ok(wrapper)
 }
 

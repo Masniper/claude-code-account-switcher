@@ -9,6 +9,9 @@ use crate::update::{
     CURRENT, REPO_URL, is_newer, latest_release_tag, normalize_version, repo_slug,
 };
 
+#[cfg(windows)]
+use crate::windows_helpers;
+
 // Self-update: query the GitHub Releases of the repo this binary was built
 // from, and if a newer tag is published, download the matching prebuilt asset
 // and swap it in over `~/.claude-switch/bin/claude-acc`. Shells out to `curl`
@@ -96,7 +99,23 @@ pub fn run(config: &AppConfig, i18n: &I18n, check_only: bool, version: Option<&s
         slug, tag, asset
     );
     i18n.print(Msg::UpdateDownloading(target_version.clone()));
-    if !download(&url, &tmp) {
+    
+    #[cfg(windows)]
+    let download_result = {
+        let mut spinner = windows_helpers::ProgressSpinner::new("Downloading update...");
+        let result = download(&url, &tmp);
+        if result {
+            spinner.finish(&format!("Downloaded {}", target_version));
+        } else {
+            spinner.fail("Download failed");
+        }
+        result
+    };
+    
+    #[cfg(not(windows))]
+    let download_result = download(&url, &tmp);
+    
+    if !download_result {
         let _ = std::fs::remove_file(&tmp);
         i18n.print(Msg::UpdateDownloadFailed);
         return 1;

@@ -62,21 +62,46 @@ pub fn run(config: &AppConfig, i18n: &I18n, name: &str, seed_from_default: bool)
 
     i18n.print(Msg::AddCreated(name.to_string()));
 
-    // `claude auth login` can write to the standard account's own Keychain
-    // entries as a side effect, even though this login is scoped to
-    // acc_dir's CLAUDE_CONFIG_DIR — snapshot/restore undoes that collateral.
-    // See identity::snapshot_side_effect_keychain for why.
-    let keychain_snapshot = identity::snapshot_side_effect_keychain();
-    let code = super::spawn_claude(build_login_command(&acc_dir), i18n);
-    identity::restore_side_effect_keychain(keychain_snapshot);
+    // Windows login workaround: claude auth login often hits TUI race condition
+    // where OAuth callback arrives before the "Paste code here" prompt renders.
+    // Solution: use `claude-acc run <name>` which triggers Claude Code's native
+    // TUI flow (which handles the callback reliably).
+    #[cfg(windows)]
+    {
+        eprintln!();
+        eprintln!("Windows: Using interactive login flow...");
+        eprintln!("The Claude Code TUI will open. Complete login there.");
+        eprintln!();
+        
+        let keychain_snapshot = identity::snapshot_side_effect_keychain();
+        let code = super::run::run_in_account(config, name, &[]);
+        identity::restore_side_effect_keychain(keychain_snapshot);
+        
+        if code != 0 {
+            i18n.print(Msg::AddLoginFailed(name.to_string()));
+            std::process::exit(code);
+        }
+    }
+    
+    // macOS/Linux: standard claude auth login flow
+    #[cfg(not(windows))]
+    {
+        // `claude auth login` can write to the standard account's own Keychain
+        // entries as a side effect, even though this login is scoped to
+        // acc_dir's CLAUDE_CONFIG_DIR — snapshot/restore undoes that collateral.
+        // See identity::snapshot_side_effect_keychain for why.
+        let keychain_snapshot = identity::snapshot_side_effect_keychain();
+        let code = super::spawn_claude(build_login_command(&acc_dir), i18n);
+        identity::restore_side_effect_keychain(keychain_snapshot);
 
-    // The account directory stays — it may already be seeded, and `login` is
-    // the natural retry. What must not stay is the success banner: printing
-    // "Done. Use:" over a login that never happened told a human the wrong
-    // thing and told a script nothing at all, since the exit code was 0.
-    if code != 0 {
-        i18n.print(Msg::AddLoginFailed(name.to_string()));
-        std::process::exit(code);
+        // The account directory stays — it may already be seeded, and `login` is
+        // the natural retry. What must not stay is the success banner: printing
+        // "Done. Use:" over a login that never happened told a human the wrong
+        // thing and told a script nothing at all, since the exit code was 0.
+        if code != 0 {
+            i18n.print(Msg::AddLoginFailed(name.to_string()));
+            std::process::exit(code);
+        }
     }
 
     // Best-effort: hint if this login turned out to be the same identity as
