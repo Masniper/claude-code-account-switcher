@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { AccountsPage } from "./accounts/AccountsPage";
+import { BackupPage } from "./backup/BackupPage";
 import { events } from "./api";
 import { Icon } from "./components";
 import { usePreference } from "./hooks";
@@ -11,7 +12,7 @@ import { SessionsPage } from "./sessions/SessionsPage";
 import { UpdateButton } from "./UpdateButton";
 import { useSnapshot } from "./useSnapshot";
 
-const TABS = ["accounts", "projects", "sessions", "desktop"] as const;
+const TABS = ["accounts", "projects", "sessions", "desktop", "backup"] as const;
 type Tab = (typeof TABS)[number];
 const THEMES = ["system", "dark", "light"] as const;
 const INTERVALS = [0, 5, 15, 30] as const;
@@ -67,7 +68,7 @@ function Shell() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
-      const index = ["1", "2", "3", "4"].indexOf(e.key);
+      const index = TABS.map((_, i) => String(i + 1)).indexOf(e.key);
       if (e.key === "r") void refresh(true);
       else if (e.key === "n") {
         setTab("accounts");
@@ -188,6 +189,7 @@ function Shell() {
             <ProjectsPage accounts={state.snapshot?.accounts ?? []} />
           )}
           {tab === "desktop" && <DesktopPage />}
+          {tab === "backup" && <BackupPage accounts={state.snapshot?.accounts ?? []} />}
           {tab === "sessions" && (
             <SessionsPage accounts={state.snapshot?.accounts ?? []} />
           )}

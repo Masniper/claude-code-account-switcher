@@ -37,6 +37,10 @@ use std::path::{Component, Path, PathBuf};
 
 pub const FORMAT_VERSION: u32 = 1;
 
+/// The passphrase type `create` and `open` take, for callers that do not
+/// depend on `age` themselves.
+pub use age::secrecy::SecretString;
+
 /// Written over a value that looked like a secret.
 pub const REDACTED: &str = "<redacted by claude-acc backup>";
 

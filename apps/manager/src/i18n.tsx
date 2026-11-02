@@ -27,6 +27,7 @@ import type {
   UpdateCheck,
   UsageSource,
 } from "./contract";
+import { isBackupFailure, type BackupErrorCode, type Reason, type Step, type Why } from "./backup/types";
 
 const en = {
   locale: "en",
@@ -58,6 +59,11 @@ const en = {
       label: "Sessions",
       title: "Session library",
       lead: "Discover conversations across accounts without opening their content.",
+    },
+    backup: {
+      label: "Backup",
+      title: "Backup and restore",
+      lead: "Move accounts, sessions and projects' agent files to another machine, Mac to Windows included.",
     },
   },
   sidebarNoteTitle: "Directory-based by design",
@@ -460,6 +466,208 @@ const en = {
   copySessionDone: (account: string, id: string) =>
     `Copied to ${account}. To continue it, run claude-acc run ${account} --resume ${id} in Terminal.`,
 
+  // Backup
+  backupCreateTitle: "Create an encrypted backup",
+  backupCreateLead:
+    "Accounts, projects' agent files, or both, in one file locked with a passphrase. Credentials never go in.",
+  backupAccountsLegend: "Accounts to back up whole",
+  backupProjectsLegend: "Projects: their CLAUDE.md, AGENTS.md, .mcp.json, .claude and .agents, never their source code",
+  backupSelectAll: "Select all",
+  backupSelectNone: "Select none",
+  backupAddProject: "Add a project folder…",
+  backupRemoveProjectAria: (path: string) => `Remove ${path} from the backup`,
+  backupModes: {
+    accounts: "Accounts only: each chosen account whole, with its bindings and the default account.",
+    projects:
+      "Projects only: their agent files, and their sessions and memory from every account. No account is taken whole.",
+    both: "Both: the chosen accounts whole, and the projects' agent files and sessions.",
+    nothing: "Choose accounts, projects, or both.",
+  } satisfies Record<"accounts" | "projects" | "both" | "nothing", string>,
+  backupPreview: "Preview",
+  backupPreviewFirst: "Preview first: the restore applies exactly what was previewed.",
+  backupCreateAction: "Create backup…",
+  backupWillHold: "THIS BACKUP WILL HOLD",
+  backupFilesAndSize: (files: number, size: string) => `${files} files, ${size}`,
+  backupWholeAccounts: (names: string) => `Whole accounts: ${names}`,
+  backupProjectLine: (path: string) => `Project: ${path}`,
+  backupProjectsOnlyNote:
+    "From each account, only these projects' sessions and memory are taken.",
+  backupEmptyProject: (path: string) =>
+    `No agent files found in ${path}: it is not a folder, or holds nothing to take.`,
+  backupLeftOut: (n: number) => `${n} entries left out (credentials, caches, plugins…)`,
+  backupReasons: {
+    credential: "credential",
+    runtime: "runtime",
+    reinstall: "reinstall",
+    special: "not a file",
+    checkout: "checkout",
+  } satisfies Record<Reason, string>,
+  backupCreateBody: (files: number, size: string) =>
+    `${files} files, ${size}, are encrypted into one file. A file that changes while it is read fails the backup, so close Claude Code sessions first.`,
+  backupFileLabel: "Backup file",
+  backupFilePlaceholder: "Where to save the .ccbackup file",
+  backupPassphrase: "Passphrase",
+  backupPassphraseAgain: "Passphrase again",
+  backupPassphraseMismatch: "The two passphrases differ.",
+  backupPassphraseWarning:
+    "There is no way to recover a forgotten passphrase: without it the backup cannot be opened.",
+  backupCreateConfirm: "Encrypt and save",
+  backupWritten: "BACKUP WRITTEN",
+  backupWrittenBody: (files: number) =>
+    `${files} files, every one with its checksum. Copy this file to the other machine.`,
+  backupRedacted: (n: number) =>
+    `${n} secret fields removed; set them again on the new machine`,
+  backupRestoreTitle: "Restore a backup",
+  backupRestoreLead:
+    "Open a backup to see what it holds, choose what goes where, preview every file, then restore. Nothing is overwritten unless you ask.",
+  backupOpenPlaceholder: "A .ccbackup file",
+  backupOpenAction: "Open",
+  backupOpening: "Decrypting and checking…",
+  backupVerified: (files: number) => `CHECKED: ${files} FILES, ALL CHECKSUMS MATCH`,
+  backupOrigin: (when: string, platform: string, home: string, version: string) =>
+    `Made ${when} on ${platform} (home ${home}) by claude-acc ${version}.`,
+  backupOpenedAccount: (files: number, projectsOnly: boolean) =>
+    `${files} files${projectsOnly ? ", project sessions only" : ""}`,
+  backupProjectBadge: "project",
+  backupBindingBadge: "binding",
+  backupFileCount: (files: number) => `${files} files`,
+  backupCloseAction: "Close this backup",
+  backupRestoreModeLegend: "What to restore",
+  backupRestoreModes: {
+    everything: "Everything chosen below",
+    accounts: "Accounts only",
+    projects: "Projects only (same project, with its sessions)",
+    reuse: "Reuse skills and agents in another project",
+  } satisfies Record<"everything" | "accounts" | "projects" | "reuse", string>,
+  backupRestoreModeHints: {
+    everything:
+      "The chosen accounts whole, and the chosen projects with their sessions and memory.",
+    accounts: "The chosen accounts whole. No project files.",
+    projects:
+      "The chosen projects' agent files, and their sessions and memory into the accounts of the same name, which may already exist.",
+    reuse:
+      "Only skills, agents, rules and commands from the project's .claude and .agents, into another folder. Never its settings, state, memory or sessions.",
+  } satisfies Record<"everything" | "accounts" | "projects" | "reuse", string>,
+  backupMapsLegend: "Path mapping",
+  backupMapsHint:
+    "Where the source machine's folders are on this one, e.g. /Users/me/work → F:\\work. Session folders, project paths in .claude.json and bindings follow it. Transcripts are never rewritten.",
+  backupMapFrom: "On the source machine",
+  backupMapTo: "On this machine",
+  backupMapToPlaceholder: "Folder on this machine",
+  backupAddMap: "Add a mapping",
+  backupRemoveMapAria: "Remove this mapping",
+  backupRestoreAccountsLegend: "Accounts",
+  backupRestoreAccountsHint:
+    "Accounts are never merged: if one of that name exists here, restore it under another name.",
+  backupRestoreAs: (name: string) => `Restore ${name} as`,
+  backupRestoreProjectsLegend: "Projects",
+  backupDestinationHint: "Leave a destination empty to use the path mapping.",
+  backupReuseDestinationHint: "Each chosen project needs the folder of the project to copy into.",
+  backupDestinationFor: (path: string) => `Destination for ${path}`,
+  backupFromMapping: "From the path mapping",
+  backupReuseDestinationPlaceholder: "The other project's folder",
+  backupSelectLegend: "Only these (optional)",
+  backupSelectPlaceholder: "skills/deploy\nagents/review.md",
+  backupSelectHint: "One per line, e.g. skills/deploy or agents/review.md. Empty takes all four kinds.",
+  backupReplace: "Replace files that differ, keeping each original",
+  backupRestoreAction: "Restore…",
+  backupPlanTitle: "PREVIEW",
+  backupPlanStale: "PREVIEW OUT OF DATE: PREVIEW AGAIN",
+  backupPlanCounts: (create: number, same: number, conflict: number, bad: number) =>
+    `${create} to create · ${same} already in place · ${conflict} conflicts · ${bad} cannot be written here`,
+  backupAccountMove: (to: string, isNew: boolean, whole: boolean) =>
+    `→ ${to}${isNew ? " (new)" : ""}${whole ? "" : ", project sessions only"}`,
+  backupProjectLeftOut: (path: string) =>
+    `${path} is not restored: no mapping or destination covers it.`,
+  backupSteps: {
+    create: "new",
+    same: "already in place",
+    conflict: "differs here",
+    incompatible: "cannot be written here",
+  } satisfies Record<Step, string>,
+  backupLoginNeeded: (names: string) =>
+    `Sign in again here, since credentials never travel: ${names}.`,
+  backupFilterAria: "Show files by what the restore does",
+  backupAllFiles: (n: number) => `All (${n})`,
+  backupStepFilter: (step: Step, n: number) =>
+    `${({ create: "New", same: "In place", conflict: "Conflicts", incompatible: "Cannot write" } satisfies Record<Step, string>)[step]} (${n})`,
+  backupWhy: {
+    symlink_on_windows: "a symlink; Windows needs Developer Mode for those",
+    link_leaves_folder: "a link pointing outside its folder",
+    name_character: "a character Windows does not allow in names",
+    name_trailing: "a name ending in a dot or space",
+    name_reserved: "a device name Windows reserves",
+    same_name_other_case: "differs from another file only by case",
+    folder_in_the_way: "a folder of that name is already there",
+    link_in_the_way: "a symlink is already there",
+    not_a_link_there: "something else is already where the link goes",
+  } satisfies Record<Why, string>,
+  backupWhyCase: (other: string) => `differs from ${other} only by case`,
+  backupNoteRenamed: (account: string, from: string, to: string) =>
+    `Sessions of ${account}: projects/${from} → projects/${to}, for the new path.`,
+  backupNoteUnmapped: (account: string, name: string) =>
+    `Sessions of ${account} in projects/${name} keep their name: no mapping covers their folder, so Claude Code here will not offer them.`,
+  backupNoteJsonMapped: (account: string, keys: number) =>
+    `${account}: ${keys} project paths in .claude.json moved to the new paths.`,
+  backupNoteReview: (path: string, field: string) =>
+    `Check by hand, written for the old machine: ${path} → ${field}`,
+  backupNoteLinkUnmapped: (dir: string) => `Binding for ${dir} not restored: no mapping covers it.`,
+  backupNoteReinstall: (path: string) => `Install again here: ${path}`,
+  backupReplaceOn: "Files that differ are replaced; each original is kept first.",
+  backupReplaceOff: "Files that differ are left as they are.",
+  backupRestoreConfirmTitle: "Restore this backup?",
+  backupRestoreConfirmBody: (create: number, replace: number, keep: number) =>
+    `${create} files are created${replace ? `, ${replace} replaced (originals kept)` : ""}${keep ? `, ${keep} left as they are` : ""}. Every step is logged; if anything fails, what was done is undone.`,
+  backupRestoreConfirm: "Restore",
+  backupRestoredNotice: (written: number, replaced: number) =>
+    `Restored: ${written} files written, ${replaced} replaced.`,
+  backupRestored: "RESTORED",
+  backupAppliedCounts: (written: number, replaced: number, skipped: number, switches: number) =>
+    `${written} written · ${replaced} replaced · ${skipped} skipped · ${switches} binding/default changes`,
+  backupOriginalsKept: (path: string) => `Replaced originals are in ${path}`,
+  backupResumeNote:
+    "The files are in place. Whether a session resumes is up to Claude Code here: check with claude --resume inside the project folder.",
+  backupPendingTitle: "An earlier restore did not finish",
+  backupPendingBody: (path: string) =>
+    `Its log is in ${path}. Undo it before restoring again.`,
+  backupRollbackAction: "Undo it…",
+  backupRollbackTitle: "Undo the unfinished restore?",
+  backupRollbackBody:
+    "Files it created are removed and files it replaced are put back, from its own log. Folders it made are removed only if empty.",
+  backupRollbackConfirm: "Undo",
+  backupRolledBack: "The unfinished restore was undone.",
+  sizeMegabytes: (megabytes: string) => `${megabytes} MB`,
+  backupErrors: {
+    backup_io: (s: string | null) => `A file could not be read or written${s ? `: ${s}` : ""}.`,
+    backup_source_changed: (s: string | null) =>
+      `${s ?? "A file"} changed while being backed up. Close Claude Code sessions and try again; nothing was written.`,
+    backup_nothing_selected: () => "Nothing is selected.",
+    backup_unknown_account: (s: string | null) => `There is no account named ${s ?? "that"}.`,
+    backup_wrong_passphrase: () => "Wrong passphrase.",
+    backup_corrupt: () =>
+      "This is not a Claude Accounts backup, or it is damaged or cut short. Nothing was restored.",
+    backup_unsupported_format: (s: string | null) =>
+      `This backup is format ${s ?? "?"}, which this version cannot read. Update Claude Accounts.`,
+    backup_unsafe_path: (s: string | null) =>
+      `Refused: the backup holds an entry outside its own folder (${s ?? "?"}).`,
+    backup_checksum: (s: string | null) =>
+      `Refused: ${s ?? "a file"} does not match the backup's checksum list.`,
+    backup_pending: () => "An earlier restore did not finish. Undo it first, at the top of this page.",
+    backup_account_exists: (s: string | null) =>
+      `An account named ${s ?? "that"} already exists here; accounts are never merged. Restore it under another name.`,
+    backup_unmapped_project: (s: string | null) =>
+      `No destination for ${s ?? "a project"}: give it one, or add a mapping that covers it.`,
+    backup_duplicate_target: (s: string | null) =>
+      `Two accounts would go into ${s ?? "one"}; accounts are never merged.`,
+    backup_bad_map: (s: string | null) => `A mapping needs both folders: ${s ?? ""}`,
+    backup_empty_passphrase: () => "Enter a passphrase.",
+    backup_passphrase_mismatch: () => "The two passphrases differ.",
+    backup_file_exists: (s: string | null) =>
+      `${s ?? "That file"} already exists. Choose a new file name.`,
+    backup_not_open: () => "Open the backup again.",
+    backup_failed: () => "The backup operation failed. Try again.",
+  } satisfies Record<BackupErrorCode, (subject: string | null) => string>,
+
   // Backend results
   errors: {
     desktop_not_signed_in: "This profile is not signed in, so there is no usage to read.",
@@ -577,6 +785,12 @@ export function useCopy(): Messages {
  * `format!("Command {command} not found")` (`webview/mod.rs`).
  */
 export function describeError(t: Messages, error: unknown): string {
+  // Backup commands answer with `{ code, subject }`, naming what failed.
+  if (isBackupFailure(error)) {
+    return Object.hasOwn(t.backupErrors, error.code)
+      ? t.backupErrors[error.code](error.subject)
+      : t.unrecognised;
+  }
   if (typeof error !== "string") return t.unreachable;
   // `hasOwn`, not `in`: `in` also admits "toString", "constructor" and the
   // rest of the prototype chain, which are functions, not copy.
@@ -587,6 +801,16 @@ export function describeError(t: Messages, error: unknown): string {
 export function kilobytes(t: Messages, bytes: number): string {
   return t.sessionSize(
     (bytes / 1024).toLocaleString(t.locale, {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }),
+  );
+}
+
+/** A size in megabytes, with the table's decimal separator. */
+export function megabytes(t: Messages, bytes: number): string {
+  return t.sizeMegabytes(
+    (bytes / 1024 / 1024).toLocaleString(t.locale, {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
     }),

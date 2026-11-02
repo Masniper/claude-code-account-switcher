@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod backend;
+mod backup;
 mod commands;
 mod copy;
 mod launcher;
@@ -16,7 +17,18 @@ fn main() {
     };
     let started = tauri::Builder::default()
         .manage(backend::Backend::new(AppConfig::new(), standard))
+        .manage(backup::BackupState::default())
         .invoke_handler(tauri::generate_handler![
+            backup::backup_survey,
+            backup::backup_create,
+            backup::backup_open,
+            backup::backup_preview,
+            backup::backup_restore,
+            backup::backup_close,
+            backup::backup_pending,
+            backup::backup_rollback,
+            backup::choose_backup_save,
+            backup::choose_backup_file,
             commands::snapshot,
             commands::set_default,
             commands::remove_account,

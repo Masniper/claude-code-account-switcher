@@ -42,6 +42,16 @@ vi.mock("./api", async (importOriginal) => ({
     desktopCloneRuntime: vi.fn(),
     checkUpdate: vi.fn(),
     chooseDirectory: vi.fn(),
+    backupSurvey: vi.fn(),
+    backupCreate: vi.fn(),
+    backupOpen: vi.fn(),
+    backupPreview: vi.fn(),
+    backupRestore: vi.fn(),
+    backupClose: vi.fn(),
+    backupPending: vi.fn(),
+    backupRollback: vi.fn(),
+    chooseBackupSave: vi.fn(),
+    chooseBackupFile: vi.fn(),
   },
 }));
 

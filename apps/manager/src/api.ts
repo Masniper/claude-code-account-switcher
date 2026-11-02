@@ -17,6 +17,7 @@ import type {
   Snapshot,
   UpdateCheck,
 } from "./contract";
+import type { Applied, Created, Opened, Plan, RestoreChoice, Survey } from "./backup/types";
 
 export const api = {
   snapshot: (live: boolean) => invoke<Snapshot>("snapshot", { live }),
@@ -56,6 +57,25 @@ export const api = {
   installation: () => invoke<Installation>("installation"),
   checkUpdate: () => invoke<UpdateCheck>("check_update"),
   chooseDirectory: () => invoke<string | null>("choose_directory"),
+  backupSurvey: (accounts: string[], allAccounts: boolean, projects: string[]) =>
+    invoke<Survey>("backup_survey", { accounts, allAccounts, projects }),
+  backupCreate: (
+    file: string,
+    accounts: string[],
+    allAccounts: boolean,
+    projects: string[],
+    passphrase: string,
+  ) =>
+    invoke<Created>("backup_create", { file, accounts, allAccounts, projects, passphrase }),
+  backupOpen: (file: string, passphrase: string) =>
+    invoke<Opened>("backup_open", { file, passphrase }),
+  backupPreview: (choice: RestoreChoice) => invoke<Plan>("backup_preview", { choice }),
+  backupRestore: (choice: RestoreChoice) => invoke<Applied>("backup_restore", { choice }),
+  backupClose: () => invoke<void>("backup_close"),
+  backupPending: () => invoke<string | null>("backup_pending"),
+  backupRollback: () => invoke<string | null>("backup_rollback"),
+  chooseBackupSave: () => invoke<string | null>("choose_backup_save"),
+  chooseBackupFile: () => invoke<string | null>("choose_backup_file"),
 };
 
 export type Unsubscribe = () => void;
