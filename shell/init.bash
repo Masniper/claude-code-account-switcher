@@ -32,7 +32,7 @@ _claude_acc_complete() {
     sub="${COMP_WORDS[2]}"
 
     if [[ $COMP_CWORD -eq 1 ]]; then
-        COMPREPLY=($(compgen -W "list add login remove default reset lock link unlink links status usage sessions session desktop vscode resume-hook statusline update install run doctor whoami clone-settings import help" -- "$cur"))
+        COMPREPLY=($(compgen -W "list add login remove default reset lock link unlink links status usage sessions session desktop vscode resume-hook statusline update install run doctor whoami clone-settings import backup help" -- "$cur"))
         return
     fi
 
@@ -56,6 +56,20 @@ _claude_acc_complete() {
         --version)
             return
             ;;
+        # `backup create` takes local accounts and folders; a restore's
+        # names and paths come from the archive, so nothing is offered.
+        --account)
+            [[ "$cmd" == backup && "$sub" == create ]] &&
+                COMPREPLY=($(compgen -W "default $('__CLAUDE_ACC_BIN__' completions accounts)" -- "$cur"))
+            return
+            ;;
+        --project)
+            [[ "$cmd" == backup && "$sub" == create ]] && COMPREPLY=($(compgen -d -- "$cur"))
+            return
+            ;;
+        --map|--select)
+            return
+            ;;
     esac
 
     if [[ "$cur" == -* ]]; then
@@ -71,6 +85,12 @@ _claude_acc_complete() {
             session) COMPREPLY=($(compgen -W "--to --from --force -f" -- "$cur")) ;;
             desktop) COMPREPLY=($(compgen -W "--seed -s --from --force -f" -- "$cur")) ;;
             vscode) COMPREPLY=($(compgen -W "--force -f" -- "$cur")) ;;
+            backup)
+                case "$sub" in
+                    create) COMPREPLY=($(compgen -W "--account --all-accounts --project --dry-run" -- "$cur")) ;;
+                    restore) COMPREPLY=($(compgen -W "--map --account --all-accounts --project --reuse --select --replace --dry-run" -- "$cur")) ;;
+                esac
+                ;;
         esac
         return
     fi
@@ -92,6 +112,9 @@ _claude_acc_complete() {
             vscode)
                 COMPREPLY=($(compgen -W "install uninstall status" -- "$cur"))
                 ;;
+            backup)
+                COMPREPLY=($(compgen -W "create inspect restore rollback" -- "$cur"))
+                ;;
             resume-hook)
                 COMPREPLY=($(compgen -W "on off" -- "$cur"))
                 ;;
@@ -100,6 +123,10 @@ _claude_acc_complete() {
         case "$cmd" in
             # `import <name> <path>`: the name is new, the path exists.
             import) COMPREPLY=($(compgen -d -- "$cur")) ;;
+            backup)
+                [[ "$sub" == create || "$sub" == inspect || "$sub" == restore ]] &&
+                    COMPREPLY=($(compgen -f -- "$cur"))
+                ;;
             session)
                 [[ "$sub" == copy ]] &&
                     COMPREPLY=($(compgen -W "$('__CLAUDE_ACC_BIN__' completions sessions)" -- "$cur"))

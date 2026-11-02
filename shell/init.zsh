@@ -66,6 +66,7 @@ _claude_acc_completion() {
         'whoami:Print active account email'
         'clone-settings:Copy ~/.claude/ config into account'
         'import:Import an existing Claude config dir (no re-login)'
+        'backup:Encrypted backup and restore, to move to another machine'
     )
 
     local cmd="${words[2]}"
@@ -96,6 +97,19 @@ _claude_acc_completion() {
         --version)
             return
             ;;
+        # `backup create` takes local accounts and folders; a restore's
+        # names and paths come from the archive, so nothing is offered.
+        --account)
+            [[ "$cmd" == backup && "${words[3]}" == create ]] && _claude_acc_accounts with-default
+            return
+            ;;
+        --project)
+            [[ "$cmd" == backup && "${words[3]}" == create ]] && _files -/
+            return
+            ;;
+        --map|--select)
+            return
+            ;;
     esac
 
     if [[ "$cur" == -* ]]; then
@@ -110,6 +124,12 @@ _claude_acc_completion() {
             update) flags=('--check:Only check, do not download' '--version:Install a specific version') ;;
             session) flags=('--to:Destination account' '--from:Source account' '--force:Skip confirmation' '-f:Skip confirmation') ;;
             vscode) flags=('--force:Replace a wrapper set to something else' '-f:Replace a wrapper set to something else') ;;
+            backup)
+                case "${words[3]}" in
+                    create) flags=('--account:Back up this account whole' '--all-accounts:Every account whole' '--project:A project and its sessions' '--dry-run:Show what would be backed up') ;;
+                    restore) flags=('--map:FROM=TO path prefix' '--account:SRC[=DST] account' '--all-accounts:Every account whole' '--project:SRC[=DIR] project' '--reuse:Only skills, agents, rules, commands' '--select:With --reuse, only this' '--replace:Overwrite conflicts, keeping originals' '--dry-run:Show every file and conflict') ;;
+                esac
+                ;;
             desktop) flags=('--seed:Seed MCP config from the app profile' '-s:Seed MCP config from the app profile' '--from:Copy the config from this profile' '--force:Skip confirmation / replace / sign-in check' '-f:Skip confirmation / replace') ;;
         esac
         (( ${#flags} )) && _describe 'option' flags
@@ -148,6 +168,15 @@ _claude_acc_completion() {
                 )
                 _describe 'subcommand' subsubs
                 ;;
+            backup)
+                subsubs=(
+                    'create:Write an encrypted backup'
+                    'inspect:Check a backup and show what it holds'
+                    'restore:Restore a backup'
+                    'rollback:Undo an interrupted restore'
+                )
+                _describe 'subcommand' subsubs
+                ;;
             resume-hook)
                 states=('on:Check --resume in the claude wrapper' 'off:Pass --resume straight through')
                 _describe 'state' states
@@ -157,6 +186,9 @@ _claude_acc_completion() {
         case "$cmd" in
             # `import <name> <path>`: the name is new, the path exists.
             import) _files -/ ;;
+            backup)
+                [[ "${words[3]}" == (create|inspect|restore) ]] && _files
+                ;;
             session)
                 if [[ "${words[3]}" == copy ]]; then
                     sessions=(${(f)"$('__CLAUDE_ACC_BIN__' completions sessions)"})

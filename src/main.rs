@@ -16,6 +16,7 @@ use claude_acc::{
 use commands::activate::ShellSyntax;
 use config::AppConfig;
 use i18n::I18n;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "claude-acc", version, about = "Claude Code Account Switcher")]
@@ -138,6 +139,16 @@ enum Commands {
         #[command(subcommand)]
         action: DesktopCommands,
     },
+    /// Encrypted backup and restore, to move accounts and projects to
+    /// another machine
+    ///
+    /// Credentials never go in: each account signs in again after a restore.
+    /// The passphrase is read from the terminal, or from one line of stdin
+    /// when that is not a terminal; never from an argument.
+    Backup {
+        #[command(subcommand)]
+        action: BackupCommands,
+    },
     /// Show or set whether the claude wrapper checks `--resume` ids
     ///
     /// With the hook on, a plain `claude --resume <id>` for a session that
@@ -258,6 +269,93 @@ enum DesktopCommands {
         force: bool,
         name: String,
     },
+}
+
+const BACKUP_CREATE_EXAMPLES: &str = "Examples:
+  claude-acc backup create ~/env.ccbackup --dry-run
+  claude-acc backup create ~/env.ccbackup                      every account
+  claude-acc backup create ~/work.ccbackup --account work      one account
+  claude-acc backup create ~/app.ccbackup --project ~/work/app project only
+  claude-acc backup create ~/all.ccbackup --all-accounts --project ~/work/app
+
+PowerShell:
+  claude-acc backup create $HOME\\env.ccbackup --dry-run";
+
+const BACKUP_RESTORE_EXAMPLES: &str = "Examples (backup made on a Mac, restored on Windows):
+  claude-acc backup inspect F:\\env.ccbackup
+  claude-acc backup restore F:\\env.ccbackup --map /Users/me/work=F:\\work --dry-run
+  claude-acc backup restore F:\\env.ccbackup --map /Users/me/work=F:\\work
+  claude-acc backup restore F:\\env.ccbackup --account work=work-mac
+  claude-acc backup restore F:\\app.ccbackup --project /Users/me/work/app=D:\\code\\app
+  claude-acc backup restore F:\\app.ccbackup --reuse --project /Users/me/work/app=D:\\other --select skills/deploy
+
+macOS / Linux:
+  claude-acc backup restore ~/env.ccbackup --map /Users/me/work=/Users/me/work --dry-run";
+
+#[derive(Subcommand)]
+enum BackupCommands {
+    /// Write an encrypted backup of accounts and/or project support files
+    ///
+    /// With no --account or --project, every account is backed up whole,
+    /// with the directory bindings and the default account. --project adds a
+    /// project's agent files (CLAUDE.md, AGENTS.md, .mcp.json, .claude/,
+    /// .agents/; never its source code), and that project's sessions and
+    /// memory from every account.
+    #[command(after_help = BACKUP_CREATE_EXAMPLES)]
+    Create {
+        /// The backup file to write; must not exist yet
+        file: PathBuf,
+        /// Back up this account whole ("default" = ~/.claude); repeatable
+        #[arg(long = "account", value_name = "NAME")]
+        accounts: Vec<String>,
+        /// Back up every account whole, also when --project is given
+        #[arg(long)]
+        all_accounts: bool,
+        /// Back up this project's support files and sessions; repeatable
+        #[arg(long = "project", value_name = "DIR")]
+        projects: Vec<PathBuf>,
+        /// Show what would be backed up, without writing anything
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Check a backup's integrity and show what it holds
+    Inspect { file: PathBuf },
+    /// Restore a backup; never overwrites unless --replace
+    ///
+    /// With no --account or --project, every account in the backup is
+    /// restored whole under its own name, and every project a --map covers.
+    /// --account alone restores accounts only; --project alone restores
+    /// those projects with their sessions and memory.
+    #[command(after_help = BACKUP_RESTORE_EXAMPLES)]
+    Restore {
+        file: PathBuf,
+        /// Rewrite a source path prefix for this machine; repeatable
+        #[arg(long = "map", value_name = "FROM=TO")]
+        maps: Vec<String>,
+        /// Restore this account whole, optionally under a new name; repeatable
+        #[arg(long = "account", value_name = "SRC[=DST]")]
+        accounts: Vec<String>,
+        /// Restore every account whole, also when --project is given
+        #[arg(long)]
+        all_accounts: bool,
+        /// Restore this project, optionally into another folder; repeatable
+        #[arg(long = "project", value_name = "SRC[=DIR]")]
+        projects: Vec<String>,
+        /// Only skills, agents, rules and commands, for use in another project
+        #[arg(long)]
+        reuse: bool,
+        /// With --reuse, only these (e.g. skills/deploy, agents/review.md)
+        #[arg(long = "select", value_name = "PATH")]
+        select: Vec<String>,
+        /// Overwrite conflicting files, keeping each original
+        #[arg(long)]
+        replace: bool,
+        /// Show every file to write and every conflict, writing nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Undo a restore that was interrupted
+    Rollback,
 }
 
 #[derive(Subcommand)]
@@ -417,6 +515,50 @@ fn main() {
             DesktopCommands::Remove { force, name } => {
                 commands::desktop::remove(&config, &i18n, &name, force)
             }
+        }),
+        Some(Commands::Backup { action }) => std::process::exit(match action {
+            BackupCommands::Create {
+                file,
+                accounts,
+                all_accounts,
+                projects,
+                dry_run,
+            } => commands::backup::create(
+                &config,
+                &i18n,
+                &file,
+                &accounts,
+                all_accounts,
+                &projects,
+                dry_run,
+            ),
+            BackupCommands::Inspect { file } => commands::backup::inspect(&config, &i18n, &file),
+            BackupCommands::Restore {
+                file,
+                maps,
+                accounts,
+                all_accounts,
+                projects,
+                reuse,
+                select,
+                replace,
+                dry_run,
+            } => commands::backup::restore(
+                &config,
+                &i18n,
+                &file,
+                &commands::backup::RestoreArgs {
+                    maps: &maps,
+                    accounts: &accounts,
+                    all_accounts,
+                    projects: &projects,
+                    reuse,
+                    select: &select,
+                    replace,
+                    dry_run,
+                },
+            ),
+            BackupCommands::Rollback => commands::backup::rollback(&config, &i18n),
         }),
         Some(Commands::ResumeHook { state }) => {
             std::process::exit(commands::resume_hook::run(&config, &i18n, state.as_deref()))

@@ -35,7 +35,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
     $candidates = @()
 
     if ($count -le 2) {
-        $candidates = @('list','add','login','remove','default','reset','lock','link','unlink','links','status','usage','sessions','session','desktop','vscode','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','help')
+        $candidates = @('list','add','login','remove','default','reset','lock','link','unlink','links','status','usage','sessions','session','desktop','vscode','resume-hook','statusline','update','install','run','doctor','whoami','clone-settings','import','backup','help')
     } elseif ($prev -eq '--from' -and $cmd -eq 'desktop') {
         # `session copy --from` takes an account; `desktop` takes a profile.
         $candidates = (& '__CLAUDE_ACC_BIN__' completions desktop) -split "`n"
@@ -44,6 +44,10 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
         $candidates = & $accountsWithDefault
     } elseif ($prev -eq '--version') {
         $candidates = @()
+    } elseif ($cmd -eq 'backup' -and $prev -in '--account','--project','--map','--select') {
+        # `backup create` takes local accounts; a restore's names and paths
+        # come from the archive, so nothing is offered.
+        if ($sub -eq 'create' -and $prev -eq '--account') { $candidates = & $accountsWithDefault }
     } elseif ($wordToComplete -like '-*') {
         switch ($cmd) {
             'add'        { $candidates = @('--seed','-s') }
@@ -57,6 +61,10 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             'session'    { $candidates = @('--to','--from','--force','-f') }
             'desktop'    { $candidates = @('--seed','-s','--from','--force','-f') }
             'vscode'     { $candidates = @('--force','-f') }
+            'backup' {
+                if ($sub -eq 'create') { $candidates = @('--account','--all-accounts','--project','--dry-run') }
+                elseif ($sub -eq 'restore') { $candidates = @('--map','--account','--all-accounts','--project','--reuse','--select','--replace','--dry-run') }
+            }
         }
     } elseif ($count -eq 3) {
         switch ($cmd) {
@@ -69,6 +77,7 @@ Register-ArgumentCompleter -CommandName claude-acc -ScriptBlock {
             'session'     { $candidates = @('copy') }
             'desktop'     { $candidates = @('add','clone-config','clone-runtime','list','usage','run','remove') }
             'vscode'      { $candidates = @('install','uninstall','status') }
+            'backup'      { $candidates = @('create','inspect','restore','rollback') }
             'resume-hook' { $candidates = @('on','off') }
         }
     } elseif ($count -eq 4 -and $cmd -eq 'session' -and $sub -eq 'copy') {

@@ -1316,6 +1316,409 @@ impl I18n {
                  claude-acc vscode install",
                 eds
             ),
+
+            // backup
+            (Msg::BackupAccounts(ref a), Lang::En) => format!("Accounts (whole): {}", a),
+            (Msg::BackupAccounts(ref a), Lang::Ru) => format!("Аккаунты (целиком): {}", a),
+            (Msg::BackupProjects(ref p), Lang::En) => format!("Projects: {}", p),
+            (Msg::BackupProjects(ref p), Lang::Ru) => format!("Проекты: {}", p),
+            (Msg::BackupProjectsOnly, Lang::En) => {
+                s("From each account, only these projects' sessions and memory are taken.")
+            }
+            (Msg::BackupProjectsOnly, Lang::Ru) => {
+                s("Из каждого аккаунта берутся только сессии и память этих проектов.")
+            }
+            (Msg::BackupSize(n, ref size), Lang::En) => format!("{} files, {}", n, size),
+            (Msg::BackupSize(n, ref size), Lang::Ru) => format!("Файлов: {}, {}", n, size),
+            (Msg::BackupEmptyProject(ref p), Lang::En) => {
+                format!(
+                    "No support files found in {} (not a folder, or nothing to take)",
+                    p
+                )
+            }
+            (Msg::BackupEmptyProject(ref p), Lang::Ru) => {
+                format!("В {} нет файлов для агента (не папка или брать нечего)", p)
+            }
+            (Msg::BackupLeftOut, Lang::En) => s("Left out:"),
+            (Msg::BackupLeftOut, Lang::Ru) => s("Не попадает в архив:"),
+            (Msg::ReasonCredential, Lang::En) => s("credential"),
+            (Msg::ReasonCredential, Lang::Ru) => s("вход"),
+            (Msg::ReasonRuntime, Lang::En) => s("runtime"),
+            (Msg::ReasonRuntime, Lang::Ru) => s("служебное"),
+            (Msg::ReasonReinstall, Lang::En) => s("reinstall"),
+            (Msg::ReasonReinstall, Lang::Ru) => s("переустановить"),
+            (Msg::ReasonSpecial, Lang::En) => s("not a file"),
+            (Msg::ReasonSpecial, Lang::Ru) => s("не файл"),
+            (Msg::ReasonCheckout, Lang::En) => s("checkout"),
+            (Msg::ReasonCheckout, Lang::Ru) => s("checkout"),
+            (Msg::BackupDryRun, Lang::En) => s("Dry run: nothing was written."),
+            (Msg::BackupDryRun, Lang::Ru) => s("Пробный запуск: ничего не записано."),
+            (Msg::BackupFileExists(ref f), Lang::En) => {
+                format!("{} already exists; pick a new file name.", f)
+            }
+            (Msg::BackupFileExists(ref f), Lang::Ru) => {
+                format!("{} уже существует; выберите другое имя.", f)
+            }
+            (Msg::BackupRedacted, Lang::En) => {
+                s("Removed as secrets (set them again on the new machine):")
+            }
+            (Msg::BackupRedacted, Lang::Ru) => {
+                s("Убрано как секреты (задайте заново на новой машине):")
+            }
+            (Msg::BackupWritten(ref f), Lang::En) => format!("Backup written: {}", f),
+            (Msg::BackupWritten(ref f), Lang::Ru) => format!("Резервная копия записана: {}", f),
+            (Msg::BackupPassphrase, Lang::En) => s("Passphrase: "),
+            (Msg::BackupPassphrase, Lang::Ru) => s("Пароль: "),
+            (Msg::BackupPassphraseAgain, Lang::En) => s("Passphrase again: "),
+            (Msg::BackupPassphraseAgain, Lang::Ru) => s("Пароль ещё раз: "),
+            (Msg::BackupPassphraseMismatch, Lang::En) => s("The passphrases differ."),
+            (Msg::BackupPassphraseMismatch, Lang::Ru) => s("Пароли не совпадают."),
+            (Msg::BackupPassphraseEmpty, Lang::En) => s("An empty passphrase is not accepted."),
+            (Msg::BackupPassphraseEmpty, Lang::Ru) => s("Пустой пароль не принимается."),
+            (Msg::BackupVerified(n), Lang::En) => {
+                format!("Archive checked: {} files, all checksums match.", n)
+            }
+            (Msg::BackupVerified(n), Lang::Ru) => format!(
+                "Архив проверен: файлов {}, все контрольные суммы сходятся.",
+                n
+            ),
+            (Msg::BackupOrigin(ago, ref os, ref home, ref v), Lang::En) => format!(
+                "Made {} on {} (home {}) by claude-acc {}",
+                relative_time(ago, Lang::En),
+                os,
+                home,
+                v
+            ),
+            (Msg::BackupOrigin(ago, ref os, ref home, ref v), Lang::Ru) => format!(
+                "Создана {} на {} (домашняя папка {}), claude-acc {}",
+                relative_time(ago, Lang::Ru),
+                os,
+                home,
+                v
+            ),
+            (Msg::BackupInspectAccount(ref l, ref dir, n, only), Lang::En) => format!(
+                "  account {} ({}): {} files{}",
+                l,
+                dir,
+                n,
+                if only { ", project sessions only" } else { "" }
+            ),
+            (Msg::BackupInspectAccount(ref l, ref dir, n, only), Lang::Ru) => format!(
+                "  аккаунт {} ({}): файлов {}{}",
+                l,
+                dir,
+                n,
+                if only {
+                    ", только сессии проектов"
+                } else {
+                    ""
+                }
+            ),
+            (Msg::BackupInspectProject(ref p, n), Lang::En) => {
+                format!("  project {}: {} files", p, n)
+            }
+            (Msg::BackupInspectProject(ref p, n), Lang::Ru) => {
+                format!("  проект {}: файлов {}", p, n)
+            }
+            (Msg::BackupInspectLink(ref d, ref a), Lang::En) => format!("  binding {} → {}", d, a),
+            (Msg::BackupInspectLink(ref d, ref a), Lang::Ru) => format!("  привязка {} → {}", d, a),
+            (Msg::BackupInspectDefault(ref a), Lang::En) => format!("  default account: {}", a),
+            (Msg::BackupInspectDefault(ref a), Lang::Ru) => {
+                format!("  аккаунт по умолчанию: {}", a)
+            }
+
+            // restore
+            (Msg::RestoreAccount(ref src, ref dst, new, whole), Lang::En) => format!(
+                "Account {} → {}{}{}",
+                src,
+                dst,
+                if new { " (new)" } else { "" },
+                if whole { "" } else { ", project sessions only" }
+            ),
+            (Msg::RestoreAccount(ref src, ref dst, new, whole), Lang::Ru) => format!(
+                "Аккаунт {} → {}{}{}",
+                src,
+                dst,
+                if new { " (новый)" } else { "" },
+                if whole {
+                    ""
+                } else {
+                    ", только сессии проектов"
+                }
+            ),
+            (Msg::RestoreProject(ref src, ref dst), Lang::En) => {
+                format!("Project {} → {}", src, dst)
+            }
+            (Msg::RestoreProject(ref src, ref dst), Lang::Ru) => {
+                format!("Проект {} → {}", src, dst)
+            }
+            (Msg::RestoreProjectLeftOut(ref p), Lang::En) => {
+                format!(
+                    "Project {} not restored: no --map covers it (or give --project {}=DEST)",
+                    p, p
+                )
+            }
+            (Msg::RestoreProjectLeftOut(ref p), Lang::Ru) => {
+                format!(
+                    "Проект {} не восстановлен: его не покрывает --map (или укажите --project {}=DEST)",
+                    p, p
+                )
+            }
+            (Msg::RestoreCounts(c, same, conflict, bad), Lang::En) => format!(
+                "Files: {} to create, {} already in place, {} conflicts, {} cannot be written here",
+                c, same, conflict, bad
+            ),
+            (Msg::RestoreCounts(c, same, conflict, bad), Lang::Ru) => format!(
+                "Файлы: создать {}, уже на месте {}, конфликтов {}, нельзя записать здесь {}",
+                c, same, conflict, bad
+            ),
+            (Msg::RestoreConflicts(true), Lang::En) => {
+                s("Replaced (the originals are kept in the restore's folder):")
+            }
+            (Msg::RestoreConflicts(true), Lang::Ru) => s("Будут заменены (оригиналы сохраняются):"),
+            (Msg::RestoreConflicts(false), Lang::En) => {
+                s("Left as they are (--replace overwrites them, keeping the originals):")
+            }
+            (Msg::RestoreConflicts(false), Lang::Ru) => {
+                s("Остаются как есть (--replace заменит их, сохранив оригиналы):")
+            }
+            (Msg::RestoreIncompatible, Lang::En) => s("Cannot be written here:"),
+            (Msg::RestoreIncompatible, Lang::Ru) => s("Нельзя записать здесь:"),
+            (Msg::WhySymlinkOnWindows, Lang::En) => {
+                s("a symlink; Windows needs Developer Mode for those")
+            }
+            (Msg::WhySymlinkOnWindows, Lang::Ru) => {
+                s("символьная ссылка; в Windows для них нужен режим разработчика")
+            }
+            (Msg::WhyLinkLeavesFolder, Lang::En) => s("a link pointing outside its folder"),
+            (Msg::WhyLinkLeavesFolder, Lang::Ru) => s("ссылка указывает за пределы своей папки"),
+            (Msg::WhyNameCharacter, Lang::En) => s("a character Windows does not allow in names"),
+            (Msg::WhyNameCharacter, Lang::Ru) => s("символ, недопустимый в именах Windows"),
+            (Msg::WhyNameTrailing, Lang::En) => s("a name ending in a dot or space"),
+            (Msg::WhyNameTrailing, Lang::Ru) => s("имя оканчивается точкой или пробелом"),
+            (Msg::WhyNameReserved, Lang::En) => s("a device name Windows reserves"),
+            (Msg::WhyNameReserved, Lang::Ru) => s("имя устройства, зарезервированное Windows"),
+            (Msg::WhySameNameOtherCase(ref o), Lang::En) => {
+                format!("differs from {} only by case", o)
+            }
+            (Msg::WhySameNameOtherCase(ref o), Lang::Ru) => {
+                format!("отличается от {} только регистром", o)
+            }
+            (Msg::WhyFolderInTheWay, Lang::En) => s("a folder of that name is already there"),
+            (Msg::WhyFolderInTheWay, Lang::Ru) => s("там уже есть папка с таким именем"),
+            (Msg::WhyLinkInTheWay, Lang::En) => s("a symlink is already there"),
+            (Msg::WhyLinkInTheWay, Lang::Ru) => s("там уже есть символьная ссылка"),
+            (Msg::WhyNotALinkThere, Lang::En) => s("something else is already where the link goes"),
+            (Msg::WhyNotALinkThere, Lang::Ru) => s("на месте ссылки уже что-то есть"),
+            (Msg::RestoreActionNew, Lang::En) => s("new"),
+            (Msg::RestoreActionNew, Lang::Ru) => s("новая"),
+            (Msg::RestoreActionSame, Lang::En) => s("already set"),
+            (Msg::RestoreActionSame, Lang::Ru) => s("уже задана"),
+            (Msg::RestoreActionConflict, Lang::En) => s("set to something else here"),
+            (Msg::RestoreActionConflict, Lang::Ru) => s("здесь задано иначе"),
+            (Msg::RestoreLink(ref d, ref a, ref st), Lang::En) => {
+                format!("Binding {} → {}: {}", d, a, st)
+            }
+            (Msg::RestoreLink(ref d, ref a, ref st), Lang::Ru) => {
+                format!("Привязка {} → {}: {}", d, a, st)
+            }
+            (Msg::RestoreDefault(ref a, ref st), Lang::En) => {
+                format!("Default account {}: {}", a, st)
+            }
+            (Msg::RestoreDefault(ref a, ref st), Lang::Ru) => {
+                format!("Аккаунт по умолчанию {}: {}", a, st)
+            }
+            (Msg::RestoreDirRenamed(ref a, ref from, ref to), Lang::En) => {
+                format!(
+                    "Sessions of {}: projects/{} → projects/{} (for the new path)",
+                    a, from, to
+                )
+            }
+            (Msg::RestoreDirRenamed(ref a, ref from, ref to), Lang::Ru) => {
+                format!(
+                    "Сессии {}: projects/{} → projects/{} (под новый путь)",
+                    a, from, to
+                )
+            }
+            (Msg::RestoreDirUnmapped(ref a, ref name), Lang::En) => format!(
+                "Sessions of {} in projects/{} keep their name: no --map covers their folder, \
+                 so Claude Code here will not offer them",
+                a, name
+            ),
+            (Msg::RestoreDirUnmapped(ref a, ref name), Lang::Ru) => format!(
+                "Сессии {} в projects/{} сохраняют имя: их папку не покрывает --map, \
+                 и Claude Code здесь их не предложит",
+                a, name
+            ),
+            (Msg::RestoreJsonMapped(ref a, n), Lang::En) => {
+                format!(
+                    "{}: {} project paths in .claude.json moved to the new paths",
+                    a, n
+                )
+            }
+            (Msg::RestoreJsonMapped(ref a, n), Lang::Ru) => {
+                format!(
+                    "{}: путей проектов в .claude.json перенесено на новые пути: {}",
+                    a, n
+                )
+            }
+            (Msg::RestoreReview(ref p, ref f), Lang::En) => {
+                format!("Check by hand (written for the old machine): {} → {}", p, f)
+            }
+            (Msg::RestoreReview(ref p, ref f), Lang::Ru) => {
+                format!(
+                    "Проверьте вручную (записано для старой машины): {} → {}",
+                    p, f
+                )
+            }
+            (Msg::RestoreLinkUnmapped(ref d), Lang::En) => {
+                format!("Binding for {} not restored: no --map covers it", d)
+            }
+            (Msg::RestoreLinkUnmapped(ref d), Lang::Ru) => {
+                format!("Привязка {} не восстановлена: её не покрывает --map", d)
+            }
+            (Msg::RestoreReinstall(ref p), Lang::En) => format!("Install again here: {}", p),
+            (Msg::RestoreReinstall(ref p), Lang::Ru) => format!("Установите здесь заново: {}", p),
+            (Msg::RestoreLogin(ref a), Lang::En) => {
+                format!("Sign in again (credentials never travel): {}", a)
+            }
+            (Msg::RestoreLogin(ref a), Lang::Ru) => {
+                format!("Войдите заново (учётные данные не переносятся): {}", a)
+            }
+            (Msg::RestoreDryRun, Lang::En) => s("Dry run: nothing was written."),
+            (Msg::RestoreDryRun, Lang::Ru) => s("Пробный запуск: ничего не записано."),
+            (Msg::RestoreDone(w, r, sk, sw), Lang::En) => format!(
+                "Restored: {} files written, {} replaced, {} skipped, {} binding/default changes.",
+                w, r, sk, sw
+            ),
+            (Msg::RestoreDone(w, r, sk, sw), Lang::Ru) => format!(
+                "Восстановлено: записано {}, заменено {}, пропущено {}, изменений привязок/умолчания {}.",
+                w, r, sk, sw
+            ),
+            (Msg::RestoreOriginalsKept(ref p), Lang::En) => {
+                format!("Replaced originals are in {}", p)
+            }
+            (Msg::RestoreOriginalsKept(ref p), Lang::Ru) => {
+                format!("Заменённые оригиналы лежат в {}", p)
+            }
+            (Msg::RestoreResumeNote, Lang::En) => s(
+                "The files are in place. Whether a session resumes is up to Claude Code here: \
+                 check with `claude --resume` inside the project folder.",
+            ),
+            (Msg::RestoreResumeNote, Lang::Ru) => s(
+                "Файлы на месте. Продолжится ли сессия, решает Claude Code на этой машине: \
+                 проверьте `claude --resume` в папке проекта.",
+            ),
+            (Msg::RestoreUndone, Lang::En) => {
+                s("The restore stopped; what it had written is undone.")
+            }
+            (Msg::RestoreUndone, Lang::Ru) => {
+                s("Восстановление прервано; уже записанное отменено.")
+            }
+            (Msg::RestoreRolledBack(ref p), Lang::En) => {
+                format!("Rolled back the restore in {}", p)
+            }
+            (Msg::RestoreRolledBack(ref p), Lang::Ru) => {
+                format!("Откачено восстановление из {}", p)
+            }
+            (Msg::RestoreNothingPending, Lang::En) => s("No unfinished restore to roll back."),
+            (Msg::RestoreNothingPending, Lang::Ru) => s("Незавершённых восстановлений нет."),
+            (Msg::BackupErrChanged(ref p), Lang::En) => format!(
+                "{} changed while being backed up. Close Claude Code sessions and try again; \
+                 nothing was written.",
+                p
+            ),
+            (Msg::BackupErrChanged(ref p), Lang::Ru) => format!(
+                "{} изменился во время копирования. Закройте сессии Claude Code и повторите; \
+                 ничего не записано.",
+                p
+            ),
+            (Msg::BackupErrNothing, Lang::En) => s("Nothing selected to back up or restore."),
+            (Msg::BackupErrNothing, Lang::Ru) => {
+                s("Не выбрано, что копировать или восстанавливать.")
+            }
+            (Msg::BackupErrPassphrase, Lang::En) => s("Wrong passphrase."),
+            (Msg::BackupErrPassphrase, Lang::Ru) => s("Неверный пароль."),
+            (Msg::BackupErrCorrupt(ref d), Lang::En) => {
+                format!(
+                    "Not a claude-acc backup, or damaged or cut short ({}). Nothing was restored.",
+                    d
+                )
+            }
+            (Msg::BackupErrCorrupt(ref d), Lang::Ru) => {
+                format!(
+                    "Это не архив claude-acc, или он повреждён или обрезан ({}). Ничего не восстановлено.",
+                    d
+                )
+            }
+            (Msg::BackupErrFormat(v), Lang::En) => {
+                format!(
+                    "This backup is format {}, which this version cannot read. Update claude-acc.",
+                    v
+                )
+            }
+            (Msg::BackupErrFormat(v), Lang::Ru) => {
+                format!(
+                    "Формат архива {} этой версии не известен. Обновите claude-acc.",
+                    v
+                )
+            }
+            (Msg::BackupErrUnsafe(ref p), Lang::En) => {
+                format!(
+                    "Refused: the archive holds an entry outside its own folder ({}).",
+                    p
+                )
+            }
+            (Msg::BackupErrUnsafe(ref p), Lang::Ru) => {
+                format!("Отказано: в архиве есть запись вне его папки ({}).", p)
+            }
+            (Msg::BackupErrChecksum(ref p), Lang::En) => {
+                format!("Refused: {} does not match the archive's checksum list.", p)
+            }
+            (Msg::BackupErrChecksum(ref p), Lang::Ru) => {
+                format!("Отказано: {} не сходится со списком контрольных сумм.", p)
+            }
+            (Msg::BackupErrPending(ref p), Lang::En) => format!(
+                "An earlier restore did not finish ({}). Undo it first: claude-acc backup rollback",
+                p
+            ),
+            (Msg::BackupErrPending(ref p), Lang::Ru) => format!(
+                "Прошлое восстановление не завершилось ({}). Сначала отмените его: claude-acc backup rollback",
+                p
+            ),
+            (Msg::BackupErrAccountExists(ref a), Lang::En) => format!(
+                "Account '{}' already exists here; accounts are never merged. \
+                 Restore under another name: --account SRC={}-2",
+                a, a
+            ),
+            (Msg::BackupErrAccountExists(ref a), Lang::Ru) => format!(
+                "Аккаунт '{}' здесь уже есть; аккаунты не сливаются. \
+                 Восстановите под другим именем: --account SRC={}-2",
+                a, a
+            ),
+            (Msg::BackupErrUnmapped(ref p), Lang::En) => format!(
+                "No destination for project {}: give --project {}=DEST, or a --map covering it \
+                 (see claude-acc backup inspect).",
+                p, p
+            ),
+            (Msg::BackupErrUnmapped(ref p), Lang::Ru) => format!(
+                "Нет места назначения для проекта {}: укажите --project {}=DEST или --map \
+                 (см. claude-acc backup inspect).",
+                p, p
+            ),
+            (Msg::BackupErrDuplicate(ref a), Lang::En) => {
+                format!(
+                    "Two accounts would go into '{}'; accounts are never merged.",
+                    a
+                )
+            }
+            (Msg::BackupErrDuplicate(ref a), Lang::Ru) => {
+                format!("Два аккаунта попали бы в '{}'; аккаунты не сливаются.", a)
+            }
+            (Msg::BackupErrBadMap(ref m), Lang::En) => format!("--map wants FROM=TO, got: {}", m),
+            (Msg::BackupErrBadMap(ref m), Lang::Ru) => {
+                format!("--map ожидает FROM=TO, получено: {}", m)
+            }
         }
     }
 
@@ -1551,6 +1954,80 @@ pub enum Msg {
     DesktopRuntimeUnverified,
     DesktopRuntimeFailed(String),
     DesktopDiskHint(String),
+    BackupAccounts(String),
+    BackupProjects(String),
+    BackupProjectsOnly,
+    BackupSize(usize, String),
+    BackupEmptyProject(String),
+    BackupLeftOut,
+    ReasonCredential,
+    ReasonRuntime,
+    ReasonReinstall,
+    ReasonSpecial,
+    ReasonCheckout,
+    BackupDryRun,
+    BackupFileExists(String),
+    BackupRedacted,
+    BackupWritten(String),
+    BackupPassphrase,
+    BackupPassphraseAgain,
+    BackupPassphraseMismatch,
+    BackupPassphraseEmpty,
+    BackupVerified(usize),
+    /// Seconds ago, platform, home, tool version.
+    BackupOrigin(u64, String, String, String),
+    BackupInspectAccount(String, String, usize, bool),
+    BackupInspectProject(String, usize),
+    BackupInspectLink(String, String),
+    BackupInspectDefault(String),
+    /// Source, target, whether new, whether whole.
+    RestoreAccount(String, String, bool, bool),
+    RestoreProject(String, String),
+    RestoreProjectLeftOut(String),
+    RestoreCounts(usize, usize, usize, usize),
+    /// Whether `--replace` was given.
+    RestoreConflicts(bool),
+    RestoreIncompatible,
+    WhySymlinkOnWindows,
+    WhyLinkLeavesFolder,
+    WhyNameCharacter,
+    WhyNameTrailing,
+    WhyNameReserved,
+    WhySameNameOtherCase(String),
+    WhyFolderInTheWay,
+    WhyLinkInTheWay,
+    WhyNotALinkThere,
+    RestoreActionNew,
+    RestoreActionSame,
+    RestoreActionConflict,
+    RestoreLink(String, String, String),
+    RestoreDefault(String, String),
+    RestoreDirRenamed(String, String, String),
+    RestoreDirUnmapped(String, String),
+    RestoreJsonMapped(String, usize),
+    RestoreReview(String, String),
+    RestoreLinkUnmapped(String),
+    RestoreReinstall(String),
+    RestoreLogin(String),
+    RestoreDryRun,
+    RestoreDone(usize, usize, usize, usize),
+    RestoreOriginalsKept(String),
+    RestoreResumeNote,
+    RestoreUndone,
+    RestoreRolledBack(String),
+    RestoreNothingPending,
+    BackupErrChanged(String),
+    BackupErrNothing,
+    BackupErrPassphrase,
+    BackupErrCorrupt(String),
+    BackupErrFormat(u32),
+    BackupErrUnsafe(String),
+    BackupErrChecksum(String),
+    BackupErrPending(String),
+    BackupErrAccountExists(String),
+    BackupErrUnmapped(String),
+    BackupErrDuplicate(String),
+    BackupErrBadMap(String),
 }
 
 fn relative_time(secs: u64, lang: Lang) -> String {

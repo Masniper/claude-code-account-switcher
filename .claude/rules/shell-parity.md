@@ -52,6 +52,7 @@ The script implements nearly every command. Absent for the reasons above:
 | `resume-hook` | the script generates its own `claude` wrapper |
 | `install` | the script is sourced, never installed |
 | `vscode` | edits the editor's `settings.json`, which is JSONC — a zsh port means reimplementing the comment- and trailing-comma-aware text editor that keeps someone's comments intact. The script also has no `install` step to hang the wrapper off |
+| `backup` | needs authenticated encryption (age/scrypt), tar handling and a journaled, staged restore — none of which a stock zsh has, and a hand-rolled substitute is exactly what the backup must not be |
 | `desktop usage` | decrypting a profile token needs PBKDF2-SHA1 + AES-128-CBC with an explicit key; stock macOS ships LibreSSL, whose `openssl` has no `kdf`. The rest of `desktop` is ported |
 
 Adding a row is allowed. Adding one silently is not.
