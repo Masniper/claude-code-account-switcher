@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::config::AppConfig;
 use crate::i18n::{I18n, Msg};
 use crate::identity::{self, CachedInfo};
-use crate::ui;
 
 pub fn run(config: &AppConfig, i18n: &I18n) {
     let default_acc = config.get_default().ok().flatten();
@@ -19,86 +18,84 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
         || identity::read_cache_at(&identity::default_cache_path(&config.base_dir)).is_some();
 
     if accounts.is_empty() && !standard_logged_in {
-        ui::empty_state(
-            &i18n.msg(Msg::ListEmpty),
-            "Get started by adding your first account",
-            "claude-acc add work"
-        );
+        i18n.print(Msg::ListEmpty);
         return;
     }
 
-    ui::header(&i18n.msg(Msg::ListHeader));
+    i18n.print(Msg::ListHeader);
 
     for acc in &accounts {
         let acc_dir = config.account_path(acc);
         let cache = identity::read_cache(&acc_dir);
-        let is_default = Some(acc.as_str()) == default_acc.as_deref();
-        
-        let (email, time_ago, has_drift) = extract_cache_info(cache.as_ref(), Some(acc_dir.as_path()));
-        ui::account_item(acc, email, time_ago, is_default, has_drift);
+        let info_suffix = cache_suffix(
+            cache.as_ref(),
+            Some(acc_dir.as_path()),
+            i18n,
+            /* skip_label */ "",
+        );
+        if Some(acc.as_str()) == default_acc.as_deref() {
+            println!("  ★ {}  {}{}", acc, i18n.msg(Msg::ListDefault), info_suffix);
+        } else {
+            println!("    {}{}", acc, info_suffix);
+        }
     }
 
     if standard_logged_in {
         let cache_path = identity::default_cache_path(&config.base_dir);
         let cache = identity::read_cache_at(&cache_path);
-        let (email, time_ago, has_drift) = extract_cache_info(cache.as_ref(), standard.as_deref());
-        
-        print!("    {}~/.claude/{}", ui::colors::DIM, ui::colors::RESET);
-        if let Some(e) = email {
-            print!("  {}", e);
-        }
-        if has_drift {
-            print!(" {}*{}", ui::colors::YELLOW, ui::colors::RESET);
-        }
-        if let Some(t) = time_ago {
-            print!("  {}{}{}", ui::colors::DIM, t, ui::colors::RESET);
-        }
-        println!("  {}{}{}", ui::colors::DIM, i18n.msg(Msg::ListStandard), ui::colors::RESET);
+        let suffix = cache_suffix(
+            cache.as_ref(),
+            standard.as_deref(),
+            i18n,
+            &format!("  {}", i18n.msg(Msg::ListStandard)),
+        );
+        println!("    ~/.claude/{}", suffix);
     }
-    println!();
 }
 
-/// Extract (email, time_ago, has_drift) from cache
-fn extract_cache_info(
+/// Returns "  email  3d ago [skip_label]" or "  email  3d ago * [skip_label]"
+/// if cache is present, else just `skip_label` if any.
+///
+/// `*` means current token at `token_dir` differs from the one cached at
+/// last `doctor` run (see README — usually a routine OAuth refresh).
+/// `skip_label` is appended after the time/marker, used by the standard row
+/// to add `(standard)`.
+fn cache_suffix(
     cache: Option<&CachedInfo>,
     token_dir: Option<&Path>,
-) -> (Option<&str>, Option<String>, bool) {
+    i18n: &I18n,
+    skip_label: &str,
+) -> String {
     let Some(cache) = cache else {
-        return (None, None, false);
+        return skip_label.to_string();
     };
-    
-    let email = cache.email.as_deref();
-    
-    let time_ago = cache
+    let Some(email) = cache.email.as_deref() else {
+        return skip_label.to_string();
+    };
+    let when = cache
         .fetched_at
         .and_then(identity::seconds_since)
-        .map(|secs| format_relative_time(secs));
-    
-    let has_drift = match (
+        .map(|secs| i18n.msg(Msg::RelativeTime(secs)))
+        .unwrap_or_default();
+
+    let drift = match (
         cache.token_hash.as_deref(),
         token_dir.and_then(identity::current_token_hash),
     ) {
-        (Some(cached), Some(current)) if cached != current => true,
-        _ => false,
+        (Some(cached), Some(current)) if cached != current => " *",
+        _ => "",
     };
-    
-    (email, time_ago, has_drift)
-}
 
-/// Format seconds into human-readable relative time
-fn format_relative_time(secs: u64) -> String {
-    const MINUTE: u64 = 60;
-    const HOUR: u64 = 60 * MINUTE;
-    const DAY: u64 = 24 * HOUR;
-    
-    if secs < MINUTE {
-        "just now".to_string()
-    } else if secs < HOUR {
-        format!("{}m ago", secs / MINUTE)
-    } else if secs < DAY {
-        format!("{}h ago", secs / HOUR)
+    let plan = cache
+        .plan
+        .as_deref()
+        .map(|p| format!("  {}", p))
+        .unwrap_or_default();
+
+    let body = if when.is_empty() {
+        format!("  {}{}{}", email, plan, drift)
     } else {
-        format!("{}d ago", secs / DAY)
-    }
+        format!("  {}{}  {}{}", email, plan, when, drift)
+    };
+    format!("{}{}", body, skip_label)
 }
-
