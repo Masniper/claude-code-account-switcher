@@ -239,6 +239,12 @@ impl I18n {
             (Msg::InstallUpdating(ref old, ref new), Lang::Ru) => {
                 format!("Обновление v{} → v{}...", old, new)
             }
+            (Msg::InstallReplacingBuild(ref v), Lang::En) => {
+                format!("Replacing a different build of v{}...", v)
+            }
+            (Msg::InstallReplacingBuild(ref v), Lang::Ru) => {
+                format!("Замена другой сборки v{}...", v)
+            }
             (Msg::InstallCopying(ref v), Lang::En) => format!("Installing v{}...", v),
             (Msg::InstallCopying(ref v), Lang::Ru) => format!("Установка v{}...", v),
             (Msg::InstallDone(ref p), Lang::En) => format!("Binary installed: {}", p),
@@ -1780,6 +1786,7 @@ pub enum Msg {
     NameInvalid,
     InstallUpToDate(String),
     InstallUpdating(String, String),
+    InstallReplacingBuild(String),
     InstallCopying(String),
     InstallDone(String),
     InstallShellAlready(String),

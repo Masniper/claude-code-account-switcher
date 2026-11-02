@@ -36,6 +36,15 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
     let current_version = env!("CARGO_PKG_VERSION");
 
     if target.exists() {
+        // Up to date means the same file, not the same version: a build of
+        // a branch reports the release's version, and comparing versions
+        // left it uninstalled while saying it was already there.
+        if same_contents(&source, &target) {
+            i18n.print(Msg::InstallUpToDate(current_version.to_string()));
+            ensure_ide_integration(config, &target);
+            ensure_shell_integration(config, i18n);
+            return;
+        }
         // Run the installed binary with --version to get its version
         let output = std::process::Command::new(&target)
             .arg("--version")
@@ -46,15 +55,13 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
             // Format: "claude-acc X.Y.Z\n"
             let installed_version = installed_version.trim().replace("claude-acc ", "");
             if installed_version == current_version {
-                i18n.print(Msg::InstallUpToDate(current_version.to_string()));
-                ensure_ide_integration(config, &target);
-                ensure_shell_integration(config, i18n);
-                return;
+                i18n.print(Msg::InstallReplacingBuild(current_version.to_string()));
+            } else {
+                i18n.print(Msg::InstallUpdating(
+                    installed_version.clone(),
+                    current_version.to_string(),
+                ));
             }
-            i18n.print(Msg::InstallUpdating(
-                installed_version.clone(),
-                current_version.to_string(),
-            ));
         }
     } else {
         i18n.print(Msg::InstallCopying(current_version.to_string()));
@@ -81,6 +88,17 @@ pub fn run(config: &AppConfig, i18n: &I18n) {
 
     ensure_ide_integration(config, &target);
     ensure_shell_integration(config, i18n);
+}
+
+/// Whether two files hold the same bytes. Anything unreadable counts as
+/// different, so the copy is attempted and its own error is the one shown.
+fn same_contents(a: &Path, b: &Path) -> bool {
+    match (fs::metadata(a), fs::metadata(b)) {
+        (Ok(ma), Ok(mb)) if ma.len() == mb.len() => {
+            matches!((fs::read(a), fs::read(b)), (Ok(x), Ok(y)) if x == y)
+        }
+        _ => false,
+    }
 }
 
 fn ensure_ide_integration(config: &AppConfig, claude_acc_bin: &Path) {
@@ -299,6 +317,26 @@ fn update_eval_line(content: &str, new_eval: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_same_bytes_count_as_already_installed() {
+        // Regression: install compared `--version` output, so a different
+        // build reporting the same version was never copied.
+        let dir = std::env::temp_dir().join(format!("cc-install-same-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let (a, b, c, d) = (dir.join("a"), dir.join("b"), dir.join("c"), dir.join("d"));
+        fs::write(&a, b"claude-acc 0.21.0 build one").unwrap();
+        fs::write(&b, b"claude-acc 0.21.0 build one").unwrap();
+        fs::write(&c, b"claude-acc 0.21.0 build two").unwrap();
+        fs::write(&d, b"shorter").unwrap();
+        assert!(same_contents(&a, &b), "identical");
+        assert!(same_contents(&a, &a), "a file is itself");
+        assert!(!same_contents(&a, &c), "same length, different bytes");
+        assert!(!same_contents(&a, &d), "different length");
+        assert!(!same_contents(&a, &dir.join("missing")), "missing");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     #[cfg(target_os = "windows")]
