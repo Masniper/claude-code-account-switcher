@@ -116,11 +116,27 @@ pub fn invoked_as_wrapper(argv0: &std::ffi::OsStr) -> bool {
 /// spawn a batch file without a shell since its April 2024 security release
 /// (CVE-2024-27980), and the extension's way of spawning it is not ours to
 /// rely on. Always overwrites, as the Unix wrapper does.
+///
+/// Every open Claude Code panel is a running copy of the wrapper, and
+/// Windows refuses to write over a running `.exe` — so writing it blindly
+/// failed whenever the editor was in use, which is exactly when someone sets
+/// it up. A copy that is already current is left alone; a stale one is moved
+/// aside first, as `update` does with the binary, since a running image can
+/// still be renamed.
 #[cfg(windows)]
 pub fn install_wrapper(base_dir: &Path, claude_acc_bin: &Path) -> std::io::Result<PathBuf> {
     let wrapper = wrapper_path(base_dir);
     fs::create_dir_all(base_dir.join("bin"))?;
-    fs::copy(claude_acc_bin, &wrapper)?;
+    let current = fs::read(claude_acc_bin)?;
+    if fs::read(&wrapper).is_ok_and(|have| have == current) {
+        return Ok(wrapper);
+    }
+    if wrapper.exists() {
+        let old = wrapper.with_extension("old");
+        let _ = fs::remove_file(&old);
+        fs::rename(&wrapper, &old)?;
+    }
+    fs::write(&wrapper, current)?;
     Ok(wrapper)
 }
 
@@ -696,6 +712,69 @@ mod tests {
         let wrapper = install_wrapper(&dir, &bin).unwrap();
         assert_eq!(wrapper, dir.join("bin").join("claude-vscode.exe"));
         assert_eq!(fs::read(&wrapper).unwrap(), b"MZ binary");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Hold `path` open the way Windows holds a running `.exe`: shared for
+    /// reading and for deletion, which is what lets it be renamed, but never
+    /// for writing.
+    #[cfg(windows)]
+    fn hold_like_a_running_image(path: &Path, rename_allowed: bool) -> fs::File {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_SHARE_READ: u32 = 0x1;
+        const FILE_SHARE_DELETE: u32 = 0x4;
+        let share = if rename_allowed {
+            FILE_SHARE_READ | FILE_SHARE_DELETE
+        } else {
+            FILE_SHARE_READ
+        };
+        fs::OpenOptions::new()
+            .read(true)
+            .share_mode(share)
+            .open(path)
+            .unwrap()
+    }
+
+    // Regression: setting up the VS Code integration from the manager failed
+    // with "could not be saved" whenever a Claude Code panel was open, since
+    // the wrapper was rewritten in place while the panel was running it.
+    #[cfg(windows)]
+    #[test]
+    fn a_stale_windows_wrapper_in_use_is_moved_aside_and_replaced() {
+        let dir = scratch("win-wrapper-busy");
+        let bin = dir.join("claude-acc.exe");
+        fs::write(&bin, b"MZ new").unwrap();
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        let wrapper = dir.join("bin").join("claude-vscode.exe");
+        fs::write(&wrapper, b"MZ old").unwrap();
+        let running = hold_like_a_running_image(&wrapper, true);
+
+        assert_eq!(install_wrapper(&dir, &bin).unwrap(), wrapper);
+        drop(running);
+        assert_eq!(fs::read(&wrapper).unwrap(), b"MZ new");
+        assert_eq!(
+            fs::read(dir.join("bin").join("claude-vscode.old")).unwrap(),
+            b"MZ old"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_current_windows_wrapper_in_use_is_left_untouched() {
+        let dir = scratch("win-wrapper-current");
+        let bin = dir.join("claude-acc.exe");
+        fs::write(&bin, b"MZ same").unwrap();
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        let wrapper = dir.join("bin").join("claude-vscode.exe");
+        fs::write(&wrapper, b"MZ same").unwrap();
+        // Not even renamable: only leaving it alone can succeed.
+        let running = hold_like_a_running_image(&wrapper, false);
+
+        assert_eq!(install_wrapper(&dir, &bin).unwrap(), wrapper);
+        drop(running);
+        assert_eq!(fs::read(&wrapper).unwrap(), b"MZ same");
+        assert!(!dir.join("bin").join("claude-vscode.old").exists());
         let _ = fs::remove_dir_all(&dir);
     }
 
