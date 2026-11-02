@@ -409,8 +409,8 @@ mod tests {
 
     #[test]
     fn project_dir_names_match_claude_codes_own_function() {
-        // Expected values come from running 2.1.309's own `wH` and `Cpe`,
-        // transcribed into Node, not from this function.
+        // Expected values come from running 2.1.309's own folder-name and
+        // string-hash functions, transcribed into Node, not from this one.
         assert_eq!(
             project_dir_name("/Users/masniper/work/claude-code-account-switcher"),
             "-Users-masniper-work-claude-code-account-switcher"
