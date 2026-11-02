@@ -1,272 +1,39 @@
-# Windows Quick Start Guide
+# Windows preview
 
-**Claude Code Account Switcher** — bind different Claude accounts to different directories on Windows.
+[← README](../README.md) · [Русский](ru/windows-quickstart.md)
 
-## One-Command Install
+A preview of the CLI and **Claude Accounts**, the manager app, on Windows, built from the fork's `build/windows-preview` branch. It is unsigned and has not been through upstream review.
 
-Open PowerShell and run:
+## Before you start
 
-```powershell
-irm https://raw.githubusercontent.com/Masniper/claude-code-account-switcher/build/windows-preview/install-windows.ps1 | iex
-```
+- Claude Code must be installed and `claude --version` must work in PowerShell. `claude-acc` runs whatever `claude` resolves to. `claude-acc doctor` warns if that is a Microsoft Store app alias under `WindowsApps` rather than Claude Code.
+- The shell integration `install` adds is a PowerShell profile script. If your execution policy does not run profile scripts, `install` and `doctor` say so. To allow it:
 
-This automatically:
-- ✓ Checks/sets ExecutionPolicy (asks permission first)
-- ✓ Downloads latest release for your architecture
-- ✓ Runs `claude-acc install`
-- ✓ Adds shell integration to your PowerShell profile
+  ```powershell
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+  ```
 
-**After install:** Restart PowerShell (or run `. $PROFILE`)
+## Install
 
----
+Both files come from the same preview build. They are built together; use them together.
 
-## Quick Example
+1. In PowerShell, in the folder holding them, install the CLI:
 
-```powershell
-# Add work account
-claude-acc add work
-# Claude Code TUI will open — complete login there
+   ```powershell
+   .\claude-acc.exe install
+   ```
 
-# Link to directory
-cd C:\Projects\Work
-claude-acc link work
+   Use this build's `claude-acc.exe`, not the 0.21.0 release. The VS Code integration on Windows copies the installed binary, and only this build has the mode that copy runs in. `install` keeps an existing binary with the same version number, so remove `%USERPROFILE%\.claude-switch\bin\claude-acc.exe` first if 0.21.0 is there.
+2. Run `Claude Accounts_<version>_x64-setup.exe`. Windows SmartScreen warns about an unsigned installer: choose **More info**, then **Run anyway**.
 
-# Now all terminals in C:\Projects\Work use work account automatically
-claude chat "test"
-```
+## What differs from macOS
 
----
+- **Open Claude, login and Add account** open a console window running the bundled `claude-acc`. If the CLI fails, the window waits for a key so its message can be read. Copy that message if you report a problem.
+- **Move to Trash** sends the folder to the Recycle Bin. If a folder is too big for the Recycle Bin, Windows asks before deleting it for good; cancelling leaves it in place.
+- **VS Code** is pointed at `%USERPROFILE%\.claude-switch\bin\claude-vscode.exe`, a copy of `claude-acc.exe`.
+- **Claude Desktop usage** unwraps the profile's key with DPAPI for your user, without a prompt. That Claude Desktop on Windows stores its token this way has not been checked on a real install yet.
+- **Sharing the Desktop runtime** (`clone-runtime`) is not available: NTFS has no copy-on-write clone, so a profile downloads its own runtime.
 
-## What's Different on Windows
+## If something fails
 
-### 1. **Login Flow**
-Windows uses the interactive TUI flow (`claude-acc run <name>`) instead of `claude auth login` to avoid race conditions where the OAuth callback arrives before the terminal prompt renders.
-
-### 2. **ExecutionPolicy**
-PowerShell blocks profile scripts by default. The installer asks to set it to `RemoteSigned` (CurrentUser scope only).
-
-**Manual fix if needed:**
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-### 3. **Path Updates**
-Shell integration adds `~\.claude-switch\bin` to PATH. Takes effect in **new** PowerShell sessions.
-
-**Quick reload without restart:**
-```powershell
-. $PROFILE
-```
-
-### 4. **Recycle Bin**
-`claude-acc remove` sends accounts to Recycle Bin (undoable). Direct delete only with `--purge`.
-
-```powershell
-claude-acc remove old-account       # → Recycle Bin
-claude-acc remove old-account --purge  # → Permanent
-```
-
----
-
-## VS Code Integration
-
-
-
----
-
-## VS Code Integration
-
-The VS Code extension doesn't use PATH, so extra step needed:
-
-```powershell
-claude-acc vscode install
-```
-
-This sets `claudeCode.claudeProcessWrapper` to point at our wrapper. Restart VS Code after.
-
-**Check status:**
-```powershell
-claude-acc vscode status
-```
-
----
-
-## Troubleshooting
-
-### "ExecutionPolicy blocks profile scripts"
-
-**Symptom:** `claude-acc` not found after install
-
-**Fix:**
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-. $PROFILE
-```
-
-### "PATH not updated"
-
-**Symptom:** New terminal doesn't see `claude-acc`
-
-**Fix:** Restart PowerShell or run `. $PROFILE`
-
-### "Login didn't complete"
-
-**Symptom:** Account created but not logged in
-
-**Fix:** Use `claude-acc run <name>` to trigger TUI login:
-```powershell
-claude-acc run work
-# Complete login in Claude Code TUI
-```
-
-### VS Code not picking up account
-
-1. Check wrapper status: `claude-acc vscode status`
-2. If "off", install it: `claude-acc vscode install`
-3. **Restart VS Code** (not just reload window)
-4. Verify in workspace: `claude-acc status`
-
----
-
-## Common Tasks
-
-```powershell
-# Switch between accounts (automatic by directory)
-cd C:\Work           # → work account
-cd C:\Personal       # → personal account (or default)
-
-# Manual one-off
-claude-acc run work chat "test as work account"
-
-# List all accounts
-claude-acc list
-
-# Check which account is active
-claude-acc status
-
-# Check rate limits
-claude-acc usage
-
-# Set default account
-claude-acc default work
-
-# Unlink directory
-cd C:\SomeProject
-claude-acc unlink
-
-# Copy conversation between accounts
-claude-acc session copy --to work
-```
-
----
-
-## Known Issues
-
-### Issue #75: Microsoft Store version not supported
-Claude Code from Microsoft Store can't run with separate profiles (Store app container restrictions). **Workaround:** Install from [claude.com/download](https://claude.com/download).
-
-### VS Code multi-profile limitation
-Only default VS Code profile gets the wrapper setting. **Workaround:** Work in default profile, or manually add `claudeCode.claudeProcessWrapper` to `settings.applyToAllProfiles`.
-
----
-
-**Report issues:** [GitHub Issues](https://github.com/Masniper/claude-code-account-switcher/issues)
-
-The VS Code extension doesn't use PATH, so extra step needed:
-
-```powershell
-claude-acc vscode install
-```
-
-This sets `claudeCode.claudeProcessWrapper` to point at our wrapper. Restart VS Code after.
-
-**Check status:**
-```powershell
-claude-acc vscode status
-```
-
----
-
-## Troubleshooting
-
-### "ExecutionPolicy blocks profile scripts"
-
-**Symptom:** `claude-acc` not found after install
-
-**Fix:**
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-. $PROFILE
-```
-
-### "PATH not updated"
-
-**Symptom:** New terminal doesn't see `claude-acc`
-
-**Fix:** Restart PowerShell or run `. $PROFILE`
-
-### "Login didn't complete"
-
-**Symptom:** Account created but not logged in
-
-**Fix:** Use `claude-acc run <name>` to trigger TUI login:
-```powershell
-claude-acc run work
-# Complete login in Claude Code TUI
-```
-
-### VS Code not picking up account
-
-1. Check wrapper status: `claude-acc vscode status`
-2. If "off", install it: `claude-acc vscode install`
-3. **Restart VS Code** (not just reload window)
-4. Verify in workspace: `claude-acc status`
-
----
-
-## Common Tasks
-
-```powershell
-# Switch between accounts (automatic by directory)
-cd C:\Work           # → work account
-cd C:\Personal       # → personal account (or default)
-
-# Manual one-off
-claude-acc run work chat "test as work account"
-
-# List all accounts
-claude-acc list
-
-# Check which account is active
-claude-acc status
-
-# Check rate limits
-claude-acc usage
-
-# Set default account
-claude-acc default work
-
-# Unlink directory
-cd C:\SomeProject
-claude-acc unlink
-
-# Copy conversation between accounts
-claude-acc session copy --to work
-```
-
----
-
-## Known Issues
-
-### Issue #75: Microsoft Store version not supported
-Claude Code from Microsoft Store can't run with separate profiles (Store app container restrictions). **Workaround:** Install from [claude.com/download](https://claude.com/download).
-
-### VS Code multi-profile limitation
-Only default VS Code profile gets the wrapper setting. **Workaround:** Work in default profile, or manually add `claudeCode.claudeProcessWrapper` to `settings.applyToAllProfiles`.
-
----
-
-**Report issues:** [GitHub Issues](https://github.com/Masniper/claude-code-account-switcher/issues)
-
-**Русская версия:** [README.ru.md](../README.ru.md)
-
+Run `claude-acc doctor` and keep its output, together with the message the console window showed.
