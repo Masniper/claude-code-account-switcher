@@ -59,17 +59,58 @@ pub struct CopyReport {
 }
 
 /// Slugify a working directory the way Claude Code names its `projects/`
-/// subdirectories: every non-alphanumeric character becomes `-`.
-///
-/// Inferred from the on-disk layout rather than documented, and verified
-/// against a sample of real project directories (paths containing `/`, `.`
-/// and `-` all round-trip). Callers that must not silently show an empty
-/// list should offer an "all projects" fallback.
+/// subdirectories. See `project_dir_name`. Callers that must not silently
+/// show an empty list should offer an "all projects" fallback.
 pub fn project_slug(cwd: &Path) -> String {
-    cwd.to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
+    project_dir_name(&cwd.to_string_lossy())
+}
+
+/// The `projects/` directory name Claude Code gives a working directory,
+/// transcribed from 2.1.309: every UTF-16 unit that is not an ASCII letter or
+/// digit becomes `-` (so a character outside the BMP becomes two), and a
+/// result longer than 200 is cut to 200 and followed by `-` and the base-36
+/// absolute value of a 32-bit string hash of the original path.
+///
+/// Taken as a string, not a `Path`, because a restore computes the name for
+/// another machine's path (`F:\work\x` on a Mac), which `Path` would parse
+/// with this machine's rules.
+pub fn project_dir_name(path: &str) -> String {
+    const CAP: usize = 200;
+    let units: Vec<u16> = path.encode_utf16().collect();
+    let slug: String = units
+        .iter()
+        .map(|&u| match u8::try_from(u) {
+            Ok(b) if b.is_ascii_alphanumeric() => char::from(b),
+            _ => '-',
+        })
+        .collect();
+    if slug.len() <= CAP {
+        return slug;
+    }
+    // `(e << 5) - e + unit | 0` over the UTF-16 units, as a signed 32-bit
+    // value; `Math.abs` of `i32::MIN` is 2^31, so widen before taking it.
+    let hash = units.iter().fold(0i32, |e, &u| {
+        e.wrapping_shl(5).wrapping_sub(e).wrapping_add(i32::from(u))
+    });
+    format!(
+        "{}-{}",
+        &slug[..CAP],
+        base36(i64::from(hash).unsigned_abs())
+    )
+}
+
+fn base36(mut n: u64) -> String {
+    const DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let mut out = Vec::new();
+    loop {
+        out.push(DIGITS[(n % 36) as usize]);
+        n /= 36;
+        if n == 0 {
+            break;
+        }
+    }
+    out.reverse();
+    String::from_utf8(out).expect("ascii digits")
 }
 
 /// The `projects/` tree inside one account's config directory.
@@ -365,6 +406,33 @@ pub fn human_size(bytes: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_dir_names_match_claude_codes_own_function() {
+        // Expected values come from running 2.1.309's own `wH` and `Cpe`,
+        // transcribed into Node, not from this function.
+        assert_eq!(
+            project_dir_name("/Users/masniper/work/claude-code-account-switcher"),
+            "-Users-masniper-work-claude-code-account-switcher"
+        );
+        assert_eq!(
+            project_dir_name(r"F:\work\claude-code-account-switcher"),
+            "F--work-claude-code-account-switcher"
+        );
+        // Non-ASCII: one `-` per UTF-16 unit, so an emoji gives two.
+        assert_eq!(
+            project_dir_name("/Users/m/work/پروژه"),
+            "-Users-m-work------"
+        );
+        assert_eq!(project_dir_name("/Users/m/work/a😀b"), "-Users-m-work-a--b");
+        // Past 200: cut, then a base-36 hash of the original path.
+        let long = format!("/Users/m/work/{}", "x".repeat(250));
+        let name = project_dir_name(&long);
+        assert_eq!(name.len(), 207);
+        assert!(name.ends_with("-1l5g2u"), "{name}");
+        let windows = format!(r"F:\work\{}", "y".repeat(260));
+        assert!(project_dir_name(&windows).ends_with("-w0x98d"));
+    }
 
     #[test]
     fn project_slug_replaces_separators() {
