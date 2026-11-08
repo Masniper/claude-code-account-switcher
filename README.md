@@ -14,6 +14,28 @@ Two distributions:
 
 Both share the same on-disk format (`~/.claude-switch/`) so you can switch between them freely.
 
+## Claude Accounts desktop app (GUI)
+
+**Claude Accounts** is the graphical manager for Windows and macOS. It brings account management and per-project bindings into one window.
+
+| In the app | What you can do |
+| --- | --- |
+| **Accounts and Projects** | Manage accounts, check usage, and choose which account a project uses. |
+| **Sessions** | Find local Claude Code sessions and copy them between accounts. |
+| **Desktop** | Manage separate Claude Desktop profiles. |
+| **Backup** | Create and restore encrypted backups of local accounts, sessions, and project agent files. |
+| **VPN guard** (Windows) | Pause detected Claude processes when the VPN adapter drops. **Sync with VPN** previews the public IP location and lets you apply or restore the Windows time zone. |
+
+For Windows, build the x64 installer from this branch:
+
+```powershell
+cd apps/manager
+npm ci
+npm run manager:build -- --bundles nsis
+```
+
+The installer is under `apps/manager/src-tauri/target/release/bundle/nsis/`. See the [manager guide](docs/manager/README.md) for setup, macOS builds, and feature details.
+
 ## Directory-bound accounts, not a global switch
 
 You don't switch accounts — you `cd`. `CLAUDE_CONFIG_DIR` is resolved per shell from the current directory, so work dirs use the work account and personal dirs use yours, in parallel terminals at the same time. There is no global "currently active account" to forget to switch back to.
