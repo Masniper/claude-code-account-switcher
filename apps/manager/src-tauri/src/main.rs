@@ -16,6 +16,11 @@ fn main() {
         fail(&text(Text::NoHome, LANG));
     };
     let started = tauri::Builder::default()
+        // Must come first. Opening the app again shows the window it already
+        // has: closing only hides it, so a new process meant a second window.
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            tray::show(app)
+        }))
         .manage(backend::Backend::new(AppConfig::new(), standard))
         .manage(backup::BackupState::default())
         .invoke_handler(tauri::generate_handler![
