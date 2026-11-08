@@ -145,6 +145,14 @@ export type GuiError =
   | "keychain_denied"
   | "desktop_token_unreadable"
   | "desktop_token_expired";
+export type WatchStatus = {
+  supported: boolean;
+  enabled: boolean;
+  /** The adapter counted as the VPN; null when none is up. */
+  vpn: string | null;
+  frozen: number;
+};
+
 export type ManagerError =
   | "cli_missing"
   | "launcher_failed"

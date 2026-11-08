@@ -14,6 +14,7 @@ import type {
   Session,
   Snapshot,
   UpdateCheck,
+  WatchStatus,
 } from "./contract";
 
 export const sample: {
@@ -27,6 +28,7 @@ export const sample: {
   sessions: Session[];
   launch: Launch;
   installation: Installation;
+  watch_status: WatchStatus;
   gui_errors: GuiError[];
   manager_errors: ManagerError[];
 } = {
@@ -170,6 +172,7 @@ export const sample: {
     "desktop_token_unreadable",
     "desktop_token_expired",
   ],
+  watch_status: { supported: true, enabled: true, vpn: "wg0", frozen: 0 },
   manager_errors: [
     "cli_missing",
     "launcher_failed",

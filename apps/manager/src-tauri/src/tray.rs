@@ -4,6 +4,7 @@
 use crate::backend::{self, Backend};
 use crate::copy::{LANG, Text, text};
 use crate::launcher;
+use crate::watch;
 use claude_acc::gui::{self, Account, LaunchAction, Snapshot};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -37,7 +38,10 @@ pub fn show(app: &AppHandle) {
 
 fn on_click(app: &AppHandle, id: &str) {
     match id {
-        "quit" => app.exit(0),
+        "quit" => {
+            watch::release(app);
+            app.exit(0);
+        }
         "show" => show(app),
         "bindings" => {
             show(app);

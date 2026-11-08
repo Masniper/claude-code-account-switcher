@@ -5,6 +5,7 @@ mod commands;
 mod copy;
 mod launcher;
 mod tray;
+mod watch;
 
 use claude_acc::{config::AppConfig, identity};
 use copy::{LANG, Text, text};
@@ -60,9 +61,12 @@ fn main() {
             commands::installation,
             commands::check_update,
             commands::choose_directory,
+            commands::watch_status,
+            commands::set_watch,
         ])
         .setup(|app| {
             tray::install(app.handle())?;
+            watch::start(app.handle());
             // Local records only: fills the menu before the window asks.
             let _ = backend::refresh(app.handle(), false);
             Ok(())

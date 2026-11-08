@@ -3,6 +3,7 @@
 use crate::backend::{self, AppError, Backend, Revisioned};
 use crate::copy::{LANG, Text, text};
 use crate::launcher::{self, Installation, Launch};
+use crate::watch::{self, Watch, WatchStatus};
 use claude_acc::desktop;
 use claude_acc::gui::{
     self, Bindings, DesktopAction, DesktopProfiles, DesktopUsage, Editor, LaunchAction,
@@ -323,6 +324,16 @@ pub async fn check_update(app: AppHandle) -> Result<UpdateCheck, AppError> {
         )?)
     })
     .await
+}
+
+#[tauri::command]
+pub async fn watch_status(app: AppHandle) -> Result<WatchStatus, AppError> {
+    blocking(app, |app| Ok(app.state::<Watch>().status())).await
+}
+
+#[tauri::command]
+pub async fn set_watch(app: AppHandle, on: bool) -> Result<WatchStatus, AppError> {
+    blocking(app, move |app| watch::set_enabled(app, on)).await
 }
 
 #[tauri::command]
