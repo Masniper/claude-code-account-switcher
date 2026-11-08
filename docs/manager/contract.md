@@ -52,6 +52,11 @@ Each account has `name`, nullable `email`, `plan` and `organization`, `is_defaul
 - `desktop_usage(account)` reads a profile's token through the CLI's `desktop_auth::profile_token`, which **prompts** for the login keychain password, asks the profile and usage APIs, refreshes the profile's identity cache as the CLI does, and returns `email`, `plan` and `usage` in the snapshot's usage shape. The token stays in the Rust process. Why there is no token is its own code: `desktop_not_signed_in`, `keychain_denied`, `desktop_token_unreadable` or `desktop_token_expired`. macOS only (`unsupported_platform`).
 - `desktop_remove(account)` moves a profile to the desktop trash and returns the list again. Unlike `claude-acc desktop remove` it never deletes outright (`trash_unavailable`), and a profile a running instance uses is refused (`desktop_running`).
 
+## VPN guard
+
+- `watch_status()` returns `supported`, `enabled`, nullable `vpn` (the adapter's name) and `frozen`, a process count. It reads what the last check found.
+- `set_watch(on)` stores the setting, applies it at once and returns the status. A setting that cannot be stored is `backend_failed`, and nothing changes.
+
 ## Errors
 
 Every failure is a machine code the window words: the library's (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`, `session_missing`, `session_exists`, `import_source_refused`, `cli_not_installed`, `statusline_exists`, `unsupported_platform`, `update_check_failed`, `desktop_running`, `desktop_app_missing`, `desktop_launch_failed`, `desktop_nothing_to_copy`, `desktop_already_has`, `desktop_runtime_would_copy`, `desktop_not_signed_in`, `keychain_denied`, `desktop_token_unreadable`, `desktop_token_expired`) and the shell's (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). A code never carries a path, subprocess output or credential data. Every code has copy in every language, and nothing has copy that cannot be sent; `copy.test.ts` checks both directions.

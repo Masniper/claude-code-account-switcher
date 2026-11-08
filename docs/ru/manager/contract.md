@@ -52,6 +52,11 @@
 - `desktop_usage(account)` читает токен профиля через `desktop_auth::profile_token` CLI, который **запрашивает** пароль связки ключей входа, обращается к API профиля и использования, как и CLI, обновляет кэш личности профиля и возвращает `email`, `plan` и `usage` в форме usage из snapshot. Токен остаётся в процессе Rust. Причина отсутствия токена — свой код: `desktop_not_signed_in`, `keychain_denied`, `desktop_token_unreadable` или `desktop_token_expired`. Только macOS (`unsupported_platform`).
 - `desktop_remove(account)` перемещает профиль в корзину и снова возвращает список. В отличие от `claude-acc desktop remove`, удаления напрямую не бывает (`trash_unavailable`), а профиль, который использует запущенный экземпляр, отклоняется (`desktop_running`).
 
+## VPN guard
+
+- `watch_status()` возвращает `supported`, `enabled`, nullable `vpn` (имя адаптера) и `frozen`, число процессов. Это результат последней проверки.
+- `set_watch(on)` сохраняет настройку, сразу применяет её и возвращает статус. Если настройку нельзя сохранить, это `backend_failed`, и ничего не меняется.
+
 ## Ошибки
 
 Каждый сбой — машинный код, который окно переводит в текст: коды библиотеки (`invalid_account`, `account_missing`, `account_exists`, `symlink_storage`, `storage_unreadable`, `storage_write_failed`, `invalid_directory`, `unrepresentable_directory`, `directory_missing`, `shared_credential_store`, `identity_drift`, `trash_unavailable`, `not_signed_in`, `session_missing`, `session_exists`, `import_source_refused`, `cli_not_installed`, `statusline_exists`, `unsupported_platform`, `update_check_failed`, `desktop_running`, `desktop_app_missing`, `desktop_launch_failed`, `desktop_nothing_to_copy`, `desktop_already_has`, `desktop_runtime_would_copy`, `desktop_not_signed_in`, `keychain_denied`, `desktop_token_unreadable`, `desktop_token_expired`) и оболочки (`cli_missing`, `launcher_failed`, `terminal_failed`, `terminal_macos_only`, `backend_failed`). Код не несёт путей, вывода процессов и учётных данных. У каждого кода есть текст на каждом языке, и нет текста для кода, который нельзя отправить; `copy.test.ts` проверяет оба направления.
