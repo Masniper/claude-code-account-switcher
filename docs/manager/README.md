@@ -2,7 +2,7 @@
 
 [Русский](../ru/manager/README.md)
 
-An optional macOS app and menu bar item for this tool: accounts, their identity and usage, and per-directory bindings, in one window. It is built on the same Rust code as the CLI and lives in `apps/manager`, outside the root `cargo` build, so CLI-only users build and install nothing extra.
+An optional macOS and Windows app with a menu bar or system tray icon: accounts, their identity and usage, and per-directory bindings, in one window. It is built on the same Rust code as the CLI and lives in `apps/manager`, outside the root `cargo` build, so CLI-only users build and install nothing extra.
 
 The app is not Claude Desktop. Its Desktop page manages the same Claude Desktop profiles as `claude-acc desktop` ([guide](../desktop.md)).
 
@@ -29,6 +29,14 @@ Claude Code must already be installed and on `PATH` in your Terminal login envir
 **Check for updates…** at the foot of the sidebar asks GitHub for the latest `claude-acc` release, as `claude-acc update --check` does, and names each CLI that is behind: the app's own, which rebuilding the app from that release brings, and the one in `~/.claude-switch/bin`, which `claude-acc update` replaces. Nothing is downloaded, and nothing is asked until you confirm.
 
 Closing the window keeps the menu bar item running. From it you can launch an account in your home directory, open Projects, refresh, or quit, and all of that works with the window closed. Opening the app again shows this window rather than a second one. Shortcuts: ⌘1–6 switch pages, ⌘N adds an account, ⌘R refreshes.
+
+### Sync the Windows time zone with the VPN
+
+1. Connect the VPN and open **VPN guard → Sync with VPN**. On click, Claude Accounts queries IPWhois and shows the approximate city, country, and time zone of the public IP that reached the lookup service.
+2. Check the result and click **Apply to Windows** to change the system time zone. With split tunneling, the lookup can use a different exit than Claude.
+3. Use **Restore previous time zone** to undo the change, even after restarting the manager or disconnecting the VPN.
+
+Sync is manual and works independently of the guard's freeze switch. It requires Windows 10 version 1903 or later and permission to change the system time zone. Build the Windows x64 installer from `apps/manager` with `npm run manager:build -- --bundles nsis`.
 
 ## Building and checking
 

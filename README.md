@@ -164,7 +164,7 @@ The README is the overview. Each topic has its own page:
 | Continue a conversation under another account after hitting a limit | [Sessions across accounts](docs/sessions.md) |
 | Check which Anthropic account a config dir is really signed in as, and how much limit is left | [Identities: `doctor`, `lock`, `usage`](docs/identity.md) |
 | Run several Claude Desktop accounts side by side | [Claude Desktop profiles](docs/desktop.md) |
-| See accounts, usage and project bindings in a window and the menu bar (macOS) | [Claude Accounts: the manager](docs/manager/README.md) |
+| Manage accounts and project bindings in Claude Accounts (macOS and Windows), or sync the Windows time zone from VPN guard | [Claude Accounts: the manager](docs/manager/README.md) |
 | Try the CLI and the manager on Windows (preview build) | [Windows preview](docs/windows-quickstart.md) |
 | Show the active account in Claude Code's status bar | [Status line](docs/statusline.md) |
 | Move accounts, sessions and project agent files to another machine, Mac to Windows included | [Backup and restore](docs/backup.md) |

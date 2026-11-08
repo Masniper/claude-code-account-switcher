@@ -164,7 +164,7 @@ README — это обзор. У каждой темы своя страница
 | Продолжить разговор в другом аккаунте после лимита | [Сессии между аккаунтами](docs/ru/sessions.md) |
 | Проверить, под каким аккаунтом реально config-папка, и сколько лимита осталось | [Личности: `doctor`, `lock`, `usage`](docs/ru/identity.md) |
 | Держать несколько аккаунтов Claude Desktop открытыми одновременно | [Профили Claude Desktop](docs/ru/desktop.md) |
-| Видеть аккаунты, использование и привязки проектов в окне и строке меню (macOS) | [Claude Accounts: менеджер](docs/ru/manager/README.md) |
+| Управлять аккаунтами и привязками проектов в Claude Accounts (macOS и Windows) или синхронизировать часовой пояс Windows через VPN guard | [Claude Accounts: менеджер](docs/ru/manager/README.md) |
 | Попробовать CLI и менеджер на Windows (предварительная сборка) | [Windows: предварительная сборка](docs/ru/windows-quickstart.md) |
 | Показать активный аккаунт в статус-панели Claude Code | [Статус-панель](docs/ru/statusline.md) |
 | Перенести аккаунты, сессии и файлы агента из проектов на другую машину, в том числе с Mac на Windows | [Резервная копия и перенос](docs/ru/backup.md) |
