@@ -44,6 +44,9 @@ vi.mock("./api", async (importOriginal) => ({
     chooseDirectory: vi.fn(),
     watchStatus: vi.fn(),
     setWatch: vi.fn(),
+    vpnExit: vi.fn(),
+    canRestoreZone: vi.fn(),
+    changeVpnZone: vi.fn(),
     backupSurvey: vi.fn(),
     backupCreate: vi.fn(),
     backupOpen: vi.fn(),
@@ -86,6 +89,7 @@ beforeEach(() => {
   vi.mocked(api.desktopProfiles).mockResolvedValue(sample.desktop_profiles);
   vi.mocked(api.terminal).mockResolvedValue({ state: "started" });
   vi.mocked(api.installation).mockResolvedValue(sample.installation);
+  vi.mocked(api.canRestoreZone).mockResolvedValue(false);
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute("open", "");
   };
@@ -983,6 +987,24 @@ describe("sessions", () => {
 
 describe("VPN guard", () => {
   const off = { supported: true, enabled: false, vpn: null, frozen: 0 };
+
+  it("previews the exit location, applies only on confirmation, and restores", async () => {
+    vi.mocked(api.watchStatus).mockResolvedValue({ ...off, vpn: "wg0" });
+    vi.mocked(api.vpnExit).mockResolvedValue({ city: "Nuremberg", country: "Germany", zone: "Europe/Berlin" });
+    vi.mocked(api.changeVpnZone).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    render(<App />);
+    fireEvent.click(screen.getAllByRole("button", { name: /VPN guard/ })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Sync with VPN" }));
+    const dialog = await screen.findByRole("dialog");
+    within(dialog).getByText(/Nuremberg, Germany.*Europe\/Berlin/);
+    expect(api.changeVpnZone).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply to Windows" }));
+    const restore = await screen.findByRole("button", { name: "Restore previous time zone" });
+    expect(api.changeVpnZone).toHaveBeenCalledWith("Europe/Berlin");
+    fireEvent.click(restore);
+    await screen.findByText("Previous Windows time zone restored.");
+    expect(api.changeVpnZone).toHaveBeenLastCalledWith(null);
+  });
 
   it("asks before turning on, warns when that freezes at once, and shows the result", async () => {
     vi.mocked(api.snapshot).mockResolvedValue(sample.snapshot);

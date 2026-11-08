@@ -58,6 +58,7 @@ export function WatchPage() {
           <span>{status.frozen > 0 ? t.watchFrozenCount(status.frozen) : t.watchNothingFrozen}</span>
         </div>
       </div>
+      <VpnZone connected={status.vpn != null} />
       <p className="footnote">{t.watchLimits}</p>
       {confirming && (
         <Dialog
@@ -67,6 +68,67 @@ export function WatchPage() {
           onClose={() => setConfirming(false)}
         >
           <p>{status.vpn ? t.watchOnBody(status.vpn) : t.watchOnBodyNoVpn}</p>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+function VpnZone({ connected }: { connected: boolean }) {
+  const t = useCopy();
+  const [location, setLocation] = useState<Awaited<ReturnType<typeof api.vpnExit>> | null>(null);
+  const [restore, setRestore] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    api.canRestoreZone().then(setRestore, () => setNotice(t.watchZoneFailed));
+  }, [t]);
+  const run = async (action: () => Promise<void>) => {
+    setPending(true);
+    setNotice("");
+    try {
+      await action();
+    } catch {
+      setNotice(t.watchZoneFailed);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="setting-row">
+        <div>
+          <strong>{t.watchZoneTitle}</strong>
+          <span>{t.watchZoneHelp}</span>
+        </div>
+        <button disabled={!connected || pending} onClick={() => void run(async () => setLocation(await api.vpnExit()))}>
+          {pending ? t.working : t.watchZoneSync}
+        </button>
+        {restore && (
+          <button disabled={pending} onClick={() => void run(async () => {
+            setRestore(await api.changeVpnZone(null));
+            setNotice(t.watchZoneRestored);
+          })}>{t.watchZoneRestore}</button>
+        )}
+      </div>
+      {notice && <p className="footnote" role="status">{notice}</p>}
+      {location && (
+        <Dialog
+          title={t.watchZoneTitle}
+          confirmLabel={t.watchZoneApply}
+          onClose={() => setLocation(null)}
+          onConfirm={async () => {
+            try {
+              setRestore(await api.changeVpnZone(location.zone));
+              setNotice(t.watchZoneApplied(location.zone));
+            } catch (error) {
+              setRestore(await api.canRestoreZone());
+              throw error;
+            }
+          }}
+        >
+          <p>{t.watchZonePreview([location.city, location.country].filter(Boolean).join(", "), location.zone)}</p>
         </Dialog>
       )}
     </>

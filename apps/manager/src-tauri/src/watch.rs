@@ -17,6 +17,9 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const SUPPORTED: bool = cfg!(windows);
+#[cfg(windows)]
+pub(crate) use os::vpn_adapter;
+
 const CHECK_EVERY: Duration = Duration::from_secs(1);
 
 /// shortcut: an install that runs under `node` is not recognised by name, add

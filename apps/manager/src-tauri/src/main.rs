@@ -5,6 +5,7 @@ mod commands;
 mod copy;
 mod launcher;
 mod tray;
+mod vpn_zone;
 mod watch;
 
 use claude_acc::{config::AppConfig, identity};
@@ -63,6 +64,9 @@ fn main() {
             commands::choose_directory,
             commands::watch_status,
             commands::set_watch,
+            vpn_zone::vpn_exit,
+            vpn_zone::can_restore_zone,
+            vpn_zone::change_vpn_zone,
         ])
         .setup(|app| {
             tray::install(app.handle())?;

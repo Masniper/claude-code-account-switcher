@@ -378,6 +378,15 @@ const en = {
   watchNothingFrozen: "Nothing",
   watchLimits:
     "An adapter being up does not prove traffic goes through it, and Claude can run for up to a second after a drop. Editors stay usable, but anything a Claude process started is frozen with it. Quitting from the menu bar thaws everything and leaves Claude unguarded until the manager runs again.",
+  watchZoneTitle: "VPN exit time zone",
+  watchZoneHelp: "Looks up your public IP through IPWhois when you click Sync. The reported location is approximate.",
+  watchZoneSync: "Sync with VPN",
+  watchZoneRestore: "Restore previous time zone",
+  watchZoneApply: "Apply to Windows",
+  watchZonePreview: (location: string, zone: string) => `Public IP location: ${location}. Change the Windows time zone to ${zone}?`,
+  watchZoneApplied: (zone: string) => `Windows time zone set to ${zone}.`,
+  watchZoneRestored: "Previous Windows time zone restored.",
+  watchZoneFailed: "Could not look up or change the time zone. Check VPN connectivity and Windows permissions.",
   watchOnTitle: "Turn on the VPN guard?",
   watchOnBody: (adapter: string) => `${adapter} is counted as your VPN. If it goes down, Claude freezes until it returns.`,
   watchOnBodyNoVpn:
