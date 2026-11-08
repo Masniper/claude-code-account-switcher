@@ -1,0 +1,3 @@
+[submodule "claude-watch"]
+	path = claude-watch
+	url = https://github.com/Masniper/claude-watch.git
