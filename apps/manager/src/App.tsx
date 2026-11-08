@@ -11,8 +11,9 @@ import { DesktopPage } from "./desktop/DesktopPage";
 import { SessionsPage } from "./sessions/SessionsPage";
 import { UpdateButton } from "./UpdateButton";
 import { useSnapshot } from "./useSnapshot";
+import { WatchPage } from "./watch/WatchPage";
 
-const TABS = ["accounts", "projects", "sessions", "desktop", "backup"] as const;
+const TABS = ["accounts", "projects", "sessions", "desktop", "backup", "watch"] as const;
 type Tab = (typeof TABS)[number];
 const THEMES = ["system", "dark", "light"] as const;
 const INTERVALS = [0, 5, 15, 30] as const;
@@ -189,6 +190,7 @@ function Shell() {
             <ProjectsPage accounts={state.snapshot?.accounts ?? []} />
           )}
           {tab === "desktop" && <DesktopPage />}
+          {tab === "watch" && <WatchPage />}
           {tab === "backup" && <BackupPage accounts={state.snapshot?.accounts ?? []} />}
           {tab === "sessions" && (
             <SessionsPage accounts={state.snapshot?.accounts ?? []} />

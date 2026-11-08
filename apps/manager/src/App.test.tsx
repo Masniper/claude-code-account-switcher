@@ -42,6 +42,8 @@ vi.mock("./api", async (importOriginal) => ({
     desktopCloneRuntime: vi.fn(),
     checkUpdate: vi.fn(),
     chooseDirectory: vi.fn(),
+    watchStatus: vi.fn(),
+    setWatch: vi.fn(),
     backupSurvey: vi.fn(),
     backupCreate: vi.fn(),
     backupOpen: vi.fn(),
@@ -976,5 +978,44 @@ describe("sessions", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
     await screen.findByText("No sessions found");
     expect(api.sessions).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("VPN guard", () => {
+  const off = { supported: true, enabled: false, vpn: null, frozen: 0 };
+
+  it("asks before turning on, warns when that freezes at once, and shows the result", async () => {
+    vi.mocked(api.snapshot).mockResolvedValue(sample.snapshot);
+    vi.mocked(api.watchStatus).mockResolvedValue(off);
+    vi.mocked(api.setWatch).mockResolvedValue({ ...off, enabled: true, frozen: 2 });
+    render(<App />);
+    fireEvent.click(screen.getAllByRole("button", { name: /VPN guard/ })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: "Turn on" }));
+    expect(api.setWatch).not.toHaveBeenCalled();
+    screen.getByText(/will freeze straight away/);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Turn on" }));
+    await waitFor(() => expect(api.setWatch).toHaveBeenCalledWith(true));
+    await screen.findByText(/^2 processes/);
+  });
+
+  it("turns off without asking, since that only thaws", async () => {
+    vi.mocked(api.snapshot).mockResolvedValue(sample.snapshot);
+    vi.mocked(api.watchStatus).mockResolvedValue({ ...off, enabled: true, vpn: "wg0" });
+    vi.mocked(api.setWatch).mockResolvedValue({ ...off, vpn: "wg0" });
+    render(<App />);
+    fireEvent.click(screen.getAllByRole("button", { name: /VPN guard/ })[0]);
+    await screen.findByText("wg0");
+    fireEvent.click(screen.getByRole("button", { name: "Turn off" }));
+    await waitFor(() => expect(api.setWatch).toHaveBeenCalledWith(false));
+  });
+
+  it("says so where it cannot run, with no switch to press", async () => {
+    vi.mocked(api.snapshot).mockResolvedValue(sample.snapshot);
+    vi.mocked(api.watchStatus).mockResolvedValue({ ...off, supported: false });
+    render(<App />);
+    fireEvent.click(screen.getAllByRole("button", { name: /VPN guard/ })[0]);
+    await screen.findByText(/available on Windows only/);
+    expect(screen.queryByRole("button", { name: "Turn on" })).toBeNull();
   });
 });

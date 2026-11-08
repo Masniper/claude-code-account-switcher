@@ -65,6 +65,11 @@ const en = {
       title: "Backup and restore",
       lead: "Move accounts, sessions and projects' agent files to another machine, Mac to Windows included.",
     },
+    watch: {
+      label: "VPN guard",
+      title: "VPN guard",
+      lead: "Freeze Claude the moment the VPN drops, and carry on when it returns.",
+    },
   },
   sidebarNoteTitle: "Directory-based by design",
   sidebarNoteBody:
@@ -355,6 +360,28 @@ const en = {
   vscodeUninstallBody:
     "Take claudeCode.claudeProcessWrapper out of each editor that points at our launcher. A launcher set by another tool, and a settings.json that is a link, are left in place.",
   vscodeRestart: "Restart the editor for it to take effect.",
+
+  // VPN guard
+  watchReading: "Checking the VPN…",
+  watchUnsupported: "The VPN guard is available on Windows only.",
+  watchBanner:
+    "While this is on and no VPN adapter is up, every Claude process is frozen: Claude Desktop on any profile, Claude Code in any terminal, and the Claude panel in an editor, along with whatever they started. Nothing is closed or lost. They continue when a VPN adapter is back.",
+  watchTitle: "Guard",
+  watchOn: "On. It stays on after a restart.",
+  watchOff: "Off. Nothing is frozen.",
+  watchTurnOn: "Turn on",
+  watchTurnOff: "Turn off",
+  watchVpn: "VPN adapter",
+  watchNoVpn: "None detected",
+  watchFrozen: "Frozen now",
+  watchFrozenCount: (count: number) => `${count} process${count === 1 ? "" : "es"}, until a VPN adapter is back or the guard is off`,
+  watchNothingFrozen: "Nothing",
+  watchLimits:
+    "An adapter being up does not prove traffic goes through it, and Claude can run for up to a second after a drop. Editors stay usable, but anything a Claude process started is frozen with it. Quitting from the menu bar thaws everything and leaves Claude unguarded until the manager runs again.",
+  watchOnTitle: "Turn on the VPN guard?",
+  watchOnBody: (adapter: string) => `${adapter} is counted as your VPN. If it goes down, Claude freezes until it returns.`,
+  watchOnBodyNoVpn:
+    "No VPN adapter is detected right now, so every Claude process will freeze straight away, including any session doing work. Turning the guard off here thaws them.",
 
   // Desktop
   desktopBanner:

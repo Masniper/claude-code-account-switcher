@@ -16,6 +16,7 @@ import type {
   Session,
   Snapshot,
   UpdateCheck,
+  WatchStatus,
 } from "./contract";
 import type { Applied, Created, Opened, Plan, RestoreChoice, Survey } from "./backup/types";
 
@@ -57,6 +58,8 @@ export const api = {
   installation: () => invoke<Installation>("installation"),
   checkUpdate: () => invoke<UpdateCheck>("check_update"),
   chooseDirectory: () => invoke<string | null>("choose_directory"),
+  watchStatus: () => invoke<WatchStatus>("watch_status"),
+  setWatch: (on: boolean) => invoke<WatchStatus>("set_watch", { on }),
   backupSurvey: (accounts: string[], allAccounts: boolean, projects: string[]) =>
     invoke<Survey>("backup_survey", { accounts, allAccounts, projects }),
   backupCreate: (
